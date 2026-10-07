@@ -4,6 +4,7 @@ project(beet VERSION 0.1.0 LANGUAGES CXX)
 option(BEET_BUILD_TESTS "Build beet tests" ${PROJECT_IS_TOP_LEVEL})
 option(BEET_BUILD_EXAMPLES "Build beet examples" ${PROJECT_IS_TOP_LEVEL})
 option(BEET_BUILD_RERUN_EXAMPLE "Build the Rerun status logging example (needs rerun_sdk)" OFF)
+option(BEET_BUILD_ROBOPLAN_EXAMPLE "Build the roboplan UR5 example (needs roboplan and rerun_sdk)" OFF)
 option(BEET_BUILD_BENCHMARKS "Build beet benchmarks" OFF)
 
 include(FetchContent)
