@@ -7,7 +7,6 @@
 
 namespace {
 
-using beet::error_t;
 using beet::input_t;
 using beet::never;
 using beet::Result;
@@ -63,7 +62,7 @@ TEST_CASE("repeat runs a node several times and stops at the first failure") {
 
 TEST_CASE("timeout_ticks fails with Timeout and adds it to the error set") {
   auto tree = beet::timeout_ticks(3, takes_ticks);
-  static_assert(std::is_same_v<error_t<decltype(tree)>, beet::Timeout>);
+  static_assert(std::is_same_v<beet::error_t<decltype(tree)>, beet::Timeout>);
 
   beet::Runner fast{tree, 3};
   CHECK(fast.tick() == Status::Running);
@@ -80,7 +79,7 @@ TEST_CASE("timeout_ticks fails with Timeout and adds it to the error set") {
 TEST_CASE("condition passes its input through or fails") {
   auto positive = beet::condition([](int x) { return x > 0; });
   static_assert(std::is_same_v<input_t<decltype(positive)>, int>);
-  static_assert(std::is_same_v<error_t<decltype(positive)>, beet::ConditionFailed>);
+  static_assert(std::is_same_v<beet::error_t<decltype(positive)>, beet::ConditionFailed>);
 
   auto tree = positive.then([](int x) { return x * 10; });
   beet::Runner yes{tree, 4};

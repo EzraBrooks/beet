@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: prefix-dev/setup-pixi@v0.11.0
+        with:
+          environments: default
+          locked: true
+          cache: true
+      - name: Build and test
+        run: pixi run test
+      - name: Run robot_patrol example
+        run: pixi run example
+
+  rerun-example:
+    name: Rerun example (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: prefix-dev/setup-pixi@v0.11.0
+        with:
+          environments: rerun
+          locked: true
+          cache: true
+      - name: Build and record
+        run: pixi run -e rerun rerun-record
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mission-${{ matrix.os }}.rrd
+          path: build-rerun/mission.rrd

@@ -29,6 +29,7 @@ rerun-sdk = ">=0.38"
 rerun-configure = "cmake -S . -B build-rerun -G Ninja -DCMAKE_BUILD_TYPE=Release -DBEET_BUILD_TESTS=OFF -DBEET_BUILD_EXAMPLES=ON -DBEET_BUILD_RERUN_EXAMPLE=ON"
 rerun-build = { cmd = "cmake --build build-rerun", depends-on = ["rerun-configure"] }
 rerun-example = { cmd = "./build-rerun/examples/rerun_status", depends-on = ["rerun-build"] }
+rerun-record = { cmd = "./build-rerun/examples/rerun_status --save build-rerun/mission.rrd", depends-on = ["rerun-build"] }
 
 [environments]
 rerun = ["rerun"]
