@@ -2,6 +2,7 @@
 
 // Logs a tree's node statuses to Rerun as a graph whose structure comes entirely from the tree's type.
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -29,33 +30,42 @@ class GraphLogger {
  public:
   GraphLogger(const rerun::RecordingStream& rec, std::string entity) : rec_(rec), entity_(std::move(entity)) {
     std::vector<rerun::components::GraphEdge> edges;
+    std::vector<float> own(nodes.size(), 0.0f);
     for (std::uint32_t i = 0; i < nodes.size(); ++i) {
       const auto& n = nodes[i];
       ids_.emplace_back("n" + std::to_string(i));
       const std::string_view name = n.label.empty() ? n.kind : n.label;
-      labels_.emplace_back(std::string(name) + "\n" + std::string(n.input) + " -> " + std::string(n.output));
+      const std::string input = shorten(n.input);
+      const std::string output = shorten(n.output);
+      labels_.emplace_back(std::string(name) + "\nin: " + input + "\nout: " + output);
+      own[i] = char_width * static_cast<float>(std::max({name.size(), input.size() + 4, output.size() + 5}));
       if (n.parent != beet::no_parent) edges.emplace_back("n" + std::to_string(n.parent), "n" + std::to_string(i));
     }
 
-    // Tidy tree layout: leaves left to right in depth-first order, parents centered over their children.
-    // Children always have higher IDs than their parent, so one backwards pass places every parent.
-    std::vector<float> x(nodes.size(), 0.0f);
+    // Tidy tree layout that cannot overlap: every subtree gets its own horizontal span, at least as wide as its
+    // root's label and as its children's spans side by side. Children always have higher IDs than their parent,
+    // so spans are sized in one backwards pass and placed in one forwards pass.
+    std::vector<std::vector<std::uint32_t>> children(nodes.size());
     std::vector<int> depth(nodes.size(), 0);
-    std::vector<int> child_count(nodes.size(), 0);
     for (std::uint32_t i = 1; i < nodes.size(); ++i) {
+      children[nodes[i].parent].push_back(i);
       depth[i] = depth[nodes[i].parent] + 1;
-      ++child_count[nodes[i].parent];
     }
-    float next_leaf = 0;
-    for (std::uint32_t i = 0; i < nodes.size(); ++i) {
-      if (child_count[i] == 0) x[i] = 220.0f * next_leaf++;
-    }
-    std::vector<float> child_sum(nodes.size(), 0.0f);
+    std::vector<float> span(nodes.size(), 0.0f);
+    std::vector<float> children_span(nodes.size(), 0.0f);
     for (std::uint32_t i = static_cast<std::uint32_t>(nodes.size()); i-- > 0;) {
-      if (child_count[i] > 0) x[i] = child_sum[i] / static_cast<float>(child_count[i]);
-      if (nodes[i].parent != beet::no_parent) child_sum[nodes[i].parent] += x[i];
+      for (std::size_t c = 0; c < children[i].size(); ++c) children_span[i] += span[children[i][c]] + (c ? gap : 0.0f);
+      span[i] = std::max(own[i], children_span[i]);
     }
-    for (std::uint32_t i = 0; i < nodes.size(); ++i) positions_.emplace_back(x[i], 140.0f * static_cast<float>(depth[i]));
+    std::vector<float> left(nodes.size(), 0.0f);
+    for (std::uint32_t i = 0; i < nodes.size(); ++i) {
+      float next = left[i] + (span[i] - children_span[i]) / 2;
+      for (std::uint32_t c : children[i]) {
+        left[c] = next;
+        next += span[c] + gap;
+      }
+      positions_.emplace_back(left[i] + span[i] / 2, row_height * static_cast<float>(depth[i]));
+    }
 
     rec_.log_static(entity_, rerun::GraphEdges(edges).with_graph_type(rerun::components::GraphType::Directed));
   }
@@ -80,6 +90,18 @@ class GraphLogger {
 
  private:
   static constexpr auto& nodes = beet::tree_info<Tree>;
+
+  // Approximate label metrics in graph units, generous enough for the viewer's proportional font.
+  static constexpr float char_width = 7.5f;
+  static constexpr float gap = 40.0f;
+  static constexpr float row_height = 120.0f;
+
+  static std::string shorten(std::string_view type) {
+    constexpr std::string_view anon = "(anonymous namespace)::";
+    std::string out(type);
+    for (auto at = out.find(anon); at != std::string::npos; at = out.find(anon, at)) out.erase(at, anon.size());
+    return out;
+  }
 
   const rerun::RecordingStream& rec_;
   std::string entity_;

@@ -31,7 +31,7 @@ function(beet_compile_fail name pattern)
   set_tests_properties(${name} PROPERTIES PASS_REGULAR_EXPRESSION "${pattern}")
 endfunction()
 
-beet_compile_fail(cf_then_type_mismatch "then\\(\\) target cannot accept this node's output type")
+beet_compile_fail(cf_sequence_type_mismatch "sequence\\(\\) child cannot accept the previous child's output type")
 beet_compile_fail(cf_recover_unknown_error "recover<E>\\(\\) names an error type this node cannot produce")
 beet_compile_fail(cf_await_uncovered_error "errors are not covered by this coroutine's error set")
 beet_compile_fail(cf_parallel_input_mismatch "parallel children must share one input type")

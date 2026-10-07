@@ -6,11 +6,14 @@
 Typed, composable behavior trees for C++20. A tree is ordinary C++ code, and the compiler checks how its parts connect.
 
 ```cpp
-auto mission = beet::node(plan_path)                        // Pose -> Path, can fail with PlanError
-    .then(beet::parallel_all(drive, watch_battery))         // Path -> tuple<Odom, Level>
-    .then(report)                                           // tuple<Odom, Level> -> Summary
-    .recover<LowBattery>([](LowBattery) { return Summary{"docked"}; })
-    .recover([](const auto& e) { return Summary{describe(e)}; });
+auto mission = beet::recover(
+    beet::recover<LowBattery>(
+        beet::sequence(
+            plan_path,                                  // Pose -> Path, can fail with PlanError
+            beet::parallel_all(drive, watch_battery),   // Path -> tuple<Odom, Level>
+            report),                                    // tuple<Odom, Level> -> Summary
+        [](LowBattery) { return Summary{"docked"}; }),
+    [](const auto& e) { return Summary{describe(e)}; });
 
 static_assert(std::is_same_v<beet::error_t<decltype(mission)>, beet::never>);  // cannot fail
 
@@ -30,11 +33,11 @@ Node<In, Out, Err>  =  In -> Task<Result<Out, Err>>
 
 Three consequences follow from that shape.
 
-**Data flows along the edges.** `a.then(b)` passes `a`'s output straight into `b`'s input. There is no shared state to keep in sync, and every value a node sees comes from the node before it. If `b` cannot accept what `a` produces, the tree does not compile.
+**Data flows along the edges.** `sequence(a, b)` passes `a`'s output straight into `b`'s input. There is no shared state to keep in sync, and every value a node sees comes from the node before it. If `b` cannot accept what `a` produces, the tree does not compile.
 
 **Failure is part of the type.** A node's `Err` is the set of everything that can go wrong inside it. Composing nodes combines their error sets, so the root's type lists every failure the tree can produce. Nothing escapes untyped.
 
-**Handling an error removes it from the type.** `.recover<E>(handler)` handles `E` and drops it from the error set. Once every error is handled, the set becomes `never`, a type with no values, so `Result<Out, never>` is a compile-time proof that the tree always produces an `Out`. If a refactor adds a new failure mode, that proof stops holding and the compiler points at the gap. Nothing is silently dropped at runtime.
+**Handling an error removes it from the type.** `recover<E>(node, handler)` handles `E` and drops it from the error set. Once every error is handled, the set becomes `never`, a type with no values, so `Result<Out, never>` is a compile-time proof that the tree always produces an `Out`. If a refactor adds a new failure mode, that proof stops holding and the compiler points at the gap. Nothing is silently dropped at runtime.
 
 The same rules apply inside coroutine nodes. `co_await child(x)` yields the child's value and propagates its failure upward, but only if the caller's error set covers the child's errors. Otherwise the build fails.
 
@@ -42,12 +45,14 @@ The same rules apply inside coroutine nodes. `co_await child(x)` yields the chil
 
 | Concept | beet |
 | --- | --- |
-| Sequence | `a.then(b)`, `a \| b`, `sequence(a, b, c)` |
-| Selector | `a.fallback(b)`, `fallback(a, b, c)` |
+| Sequence | `sequence(a, b, c)` |
+| Selector | `fallback(a, b, c)` |
 | Parallel | `parallel_all`, `parallel_any`, `parallel_n<K>`, with an optional `ThreadPoolExecutor` |
 | Running | `co_await beet::running;` suspends a node until the next tick |
-| Halt | Destroying a suspended node; cleanup lives in destructors or `.finally()` |
-| Decorators | `retry`, `repeat`, `timeout_ticks`, `condition` |
+| Halt | Destroying a suspended node; cleanup lives in destructors or `finally(node, f)` |
+| Decorators | `recover`, `retry`, `repeat`, `timeout_ticks`, `condition` |
+
+Trees are written top-down: every composite and decorator is a function that takes its children, so the code nests exactly as the tree does, with the root as the outermost call.
 
 Leaves can be plain functions (`Out(In)` or `Result<Out, E>(In)`) or coroutines (`Task<Result<Out, E>>(In)`). Use `AnyNode<In, Out, Err>` to hide a subtree's concrete type behind a stable interface.
 

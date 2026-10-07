@@ -31,7 +31,7 @@ Status tick_until_done(R& runner) {
 }  // namespace
 
 TEST_CASE("offload runs a function off the tick and yields its result") {
-  auto tree = beet::offload([](int x) { return x * 2; }).then([](int x) { return x + 1; });
+  auto tree = beet::sequence(beet::offload([](int x) { return x * 2; }), [](int x) { return x + 1; });
   static_assert(std::is_same_v<beet::input_t<decltype(tree)>, int>);
   static_assert(std::is_same_v<beet::error_t<decltype(tree)>, beet::never>);
 
