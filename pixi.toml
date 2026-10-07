@@ -1,0 +1,22 @@
+[workspace]
+name = "beet"
+version = "0.1.0"
+description = "Typed, composable behavior trees for C++20"
+license = "MIT"
+license-file = "LICENSE"
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "osx-64", "linux-64", "linux-aarch64"]
+
+[dependencies]
+cmake = ">=3.25"
+ninja = "*"
+cxx-compiler = "*"
+cpp-expected = ">=1.1"
+doctest = ">=2.4"
+
+[tasks]
+configure = "cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DBEET_BUILD_TESTS=ON -DBEET_BUILD_EXAMPLES=ON"
+build = { cmd = "cmake --build build", depends-on = ["configure"] }
+test = { cmd = "ctest --test-dir build --output-on-failure", depends-on = ["build"] }
+example = { cmd = "./build/examples/robot_patrol", depends-on = ["build"] }
+clean = "rm -rf build"
