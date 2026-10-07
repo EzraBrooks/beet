@@ -1,0 +1,56 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "BEET_BUILD_TESTS": "OFF",
+        "BEET_BUILD_EXAMPLES": "OFF"
+      }
+    },
+    {
+      "name": "dev",
+      "displayName": "Debug build with tests and examples",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "BEET_BUILD_TESTS": "ON",
+        "BEET_BUILD_EXAMPLES": "ON"
+      }
+    },
+    {
+      "name": "rerun",
+      "displayName": "Release build of the Rerun status example",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build-rerun",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BEET_BUILD_EXAMPLES": "ON",
+        "BEET_BUILD_RERUN_EXAMPLE": "ON"
+      }
+    },
+    {
+      "name": "bench",
+      "displayName": "Release build of the benchmarks",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build-bench",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BEET_BUILD_BENCHMARKS": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "dev", "configurePreset": "dev" },
+    { "name": "rerun", "configurePreset": "rerun" },
+    { "name": "bench", "configurePreset": "bench" }
+  ],
+  "testPresets": [
+    { "name": "dev", "configurePreset": "dev", "output": { "outputOnFailure": true } }
+  ]
+}
