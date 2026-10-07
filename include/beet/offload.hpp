@@ -52,15 +52,20 @@ struct offload_state {
 
 }  // namespace detail
 
-/// Runs `fn` on its own thread so slow work does not stall the tick; the node stays running until `fn` returns.
-/// `fn` may take a trailing `std::stop_token`, which is stopped when the node is halted. A halted job still runs
-/// to completion on its thread, and its result is dropped.
+/// Runs `fn` on its own thread so slow work does not stall the tick; the node
+/// stays running until `fn` returns. `fn` may take a trailing
+/// `std::stop_token`, which is stopped when the node is halted. A halted job
+/// still runs to completion on its thread, and its result is dropped.
 template <class F>
 auto offload(F fn) {
-  using In = typename detail::offload_input<typename detail::callable_traits<F>::args>::type;
-  using R = decltype(detail::invoke_job(fn, std::declval<In>(), std::stop_token{}));
+  using In = typename detail::offload_input<
+      typename detail::callable_traits<F>::args>::type;
+  using R =
+      decltype(detail::invoke_job(fn, std::declval<In>(), std::stop_token{}));
   using L = detail::lift_of<R>;
-  static_assert(!L::is_task, "beet::offload runs plain functions; coroutines already yield to the tick");
+  static_assert(!L::is_task,
+                "beet::offload runs plain functions; coroutines already yield "
+                "to the tick");
   using Out = typename L::out;
   using Err = typename L::err;
   using State = detail::offload_state<Result<Out, Err>>;
@@ -73,7 +78,8 @@ auto offload(F fn) {
           detail::invoke_job(fn, std::move(in), state->stop.get_token());
           state->value.emplace(Out{});
         } else {
-          state->value.emplace(detail::to_result<Out, Err>(detail::invoke_job(fn, std::move(in), state->stop.get_token())));
+          state->value.emplace(detail::to_result<Out, Err>(
+              detail::invoke_job(fn, std::move(in), state->stop.get_token())));
         }
       } catch (...) {
         state->exception = std::current_exception();

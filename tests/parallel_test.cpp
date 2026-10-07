@@ -52,9 +52,12 @@ int ticks_to_finish(beet::Runner<N>& r) {
 }  // namespace
 
 TEST_CASE("parallel_all ticks children together and returns a tuple") {
-  auto tree = beet::parallel_all(job(1, 3), job(2, 1), beet::node([](int x) { return std::to_string(x); }));
+  auto tree =
+      beet::parallel_all(job(1, 3), job(2, 1),
+                         beet::node([](int x) { return std::to_string(x); }));
   static_assert(std::is_same_v<input_t<decltype(tree)>, int>);
-  static_assert(std::is_same_v<output_t<decltype(tree)>, std::tuple<int, int, std::string>>);
+  static_assert(std::is_same_v<output_t<decltype(tree)>,
+                               std::tuple<int, int, std::string>>);
   static_assert(std::is_same_v<beet::error_t<decltype(tree)>, Failed>);
 
   beet::Runner r{tree, 100};
@@ -73,8 +76,10 @@ TEST_CASE("parallel_all fails fast and halts the other children") {
 
 TEST_CASE("parallel_any returns the first success as a child-indexed variant") {
   int halted = 0;
-  auto tree = beet::parallel_any(job(1, 4, true, &halted), job(2, 2), job(3, 1, false));
-  static_assert(std::is_same_v<output_t<decltype(tree)>, std::variant<int, int, int>>);
+  auto tree =
+      beet::parallel_any(job(1, 4, true, &halted), job(2, 2), job(3, 1, false));
+  static_assert(
+      std::is_same_v<output_t<decltype(tree)>, std::variant<int, int, int>>);
 
   beet::Runner r{tree, 10};
   CHECK(ticks_to_finish(r) == 2);
@@ -92,8 +97,10 @@ TEST_CASE("parallel_any fails with the last child's error when all fail") {
 
 TEST_CASE("parallel_n succeeds once K children succeed") {
   auto tree = beet::parallel_n<2>(job(1, 1), job(2, 5), job(3, 2));
-  static_assert(std::is_same_v<output_t<decltype(tree)>,
-                               std::tuple<std::optional<int>, std::optional<int>, std::optional<int>>>);
+  static_assert(
+      std::is_same_v<output_t<decltype(tree)>,
+                     std::tuple<std::optional<int>, std::optional<int>,
+                                std::optional<int>>>);
   beet::Runner r{tree, 0};
   CHECK(ticks_to_finish(r) == 2);
   auto [a, b, c] = r.result().value();
@@ -103,7 +110,8 @@ TEST_CASE("parallel_n succeeds once K children succeed") {
 }
 
 TEST_CASE("parallel_n fails once success is impossible") {
-  auto tree = beet::parallel_n<2>(job(1, 1, false), job(2, 5), job(3, 2, false));
+  auto tree =
+      beet::parallel_n<2>(job(1, 1, false), job(2, 5), job(3, 2, false));
   beet::Runner r{tree, 0};
   CHECK(ticks_to_finish(r) == 2);
   CHECK(r.result().error().id == 3);
@@ -123,7 +131,8 @@ TEST_CASE("a thread pool executor ticks children concurrently") {
   std::atomic<int> peak{0};
   auto busy = beet::node([&](int id) {
     int now = ++inside;
-    for (int seen = peak; now > seen && !peak.compare_exchange_weak(seen, now);) {
+    for (int seen = peak;
+         now > seen && !peak.compare_exchange_weak(seen, now);) {
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     --inside;

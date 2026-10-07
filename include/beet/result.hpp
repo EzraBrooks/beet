@@ -16,7 +16,8 @@ struct unit {
   friend constexpr bool operator==(unit, unit) noexcept = default;
 };
 
-/// The empty error set. It cannot be constructed, so a `Result<T, never>` always holds a value.
+/// The empty error set. It cannot be constructed, so a `Result<T, never>`
+/// always holds a value.
 struct never {
   never() = delete;
 };

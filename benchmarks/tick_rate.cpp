@@ -1,4 +1,5 @@
-// Ticks a small tree for a fixed time and fails if the best observed tick rate falls below a minimum.
+// Ticks a small tree for a fixed time and fails if the best observed tick rate
+// falls below a minimum.
 //
 // Usage: tick_rate [min_ticks_per_second]
 
@@ -31,11 +32,14 @@ Task<Result<int, beet::never>> approach(int x) {
 }
 
 auto make_tree() {
-  return beet::recover(beet::sequence(check, approach), [](TooFar f) { return f.at; });
+  return beet::recover(beet::sequence(check, approach),
+                       [](TooFar f) { return f.at; });
 }
 
-// Restarts the tree whenever it finishes, so frame allocation is part of the measured cost.
-double measure_ticks_per_second(std::chrono::duration<double> budget, long long& sink) {
+// Restarts the tree whenever it finishes, so frame allocation is part of the
+// measured cost.
+double measure_ticks_per_second(std::chrono::duration<double> budget,
+                                long long& sink) {
   using clock = std::chrono::steady_clock;
   beet::Runner runner{make_tree(), 0};
   long long ticks = 0;
@@ -52,7 +56,8 @@ double measure_ticks_per_second(std::chrono::duration<double> budget, long long&
     }
     now = clock::now();
   }
-  return static_cast<double>(ticks) / std::chrono::duration<double>(now - start).count();
+  return static_cast<double>(ticks) /
+         std::chrono::duration<double>(now - start).count();
 }
 
 }  // namespace
@@ -65,12 +70,15 @@ int main(int argc, char** argv) {
   measure_ticks_per_second(std::chrono::milliseconds(100), sink);
   double best = 0;
   for (int t = 0; t < trials; ++t) {
-    const double rate = measure_ticks_per_second(std::chrono::milliseconds(200), sink);
+    const double rate =
+        measure_ticks_per_second(std::chrono::milliseconds(200), sink);
     std::printf("trial %d: %.3g ticks/s\n", t + 1, rate);
     if (rate > best) best = rate;
   }
-  std::printf("best: %.3g ticks/s (%.1f ns/tick), minimum: %.3g ticks/s, checksum %lld\n", best, 1e9 / best,
-              minimum, sink);
+  std::printf(
+      "best: %.3g ticks/s (%.1f ns/tick), minimum: %.3g ticks/s, checksum "
+      "%lld\n",
+      best, 1e9 / best, minimum, sink);
 
   if (best < minimum) {
     std::printf("FAIL: tick rate is below the minimum\n");

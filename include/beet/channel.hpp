@@ -15,15 +15,17 @@ namespace beet {
 template <class Req, class Reply>
 class Channel;
 
-/// Input of `Channel<Req, Reply>::call()`: the channel to call and the request to send on it.
+/// Input of `Channel<Req, Reply>::call()`: the channel to call and the request
+/// to send on it.
 template <class Req, class Reply>
 struct Call {
   Channel<Req, Reply> channel;
   Req request;
 };
 
-/// A typed request/reply link between branches of a running tree, such as a planner and a controller ticked side
-/// by side. Copies share the same channel. `Reply` may be a `Result<Out, E>`, whose errors reach the caller.
+/// A typed request/reply link between branches of a running tree, such as a
+/// planner and a controller ticked side by side. Copies share the same channel.
+/// `Reply` may be a `Result<Out, E>`, whose errors reach the caller.
 template <class Req, class Reply>
 class Channel {
   struct exchange {
@@ -41,7 +43,8 @@ class Channel {
   };
 
  public:
-  /// A request taken by the server. The caller keeps waiting until `reply()` is called or it is halted.
+  /// A request taken by the server. The caller keeps waiting until `reply()` is
+  /// called or it is halted.
   class Request {
    public:
     const Req& value() const { return ex_->value; }
@@ -77,34 +80,37 @@ class Channel {
     return std::nullopt;
   }
 
-  /// A node that sends its request and stays running until the server replies. Halting it cancels the request.
+  /// A node that sends its request and stays running until the server replies.
+  /// Halting it cancels the request.
   static auto call() {
     using L = detail::lift_of<Reply>;
     using Out = typename L::out;
     using Err = typename L::err;
-    return node<Call<Req, Reply>>([](Call<Req, Reply> c) -> Task<Result<Out, Err>> {
-      auto ex = std::make_shared<exchange>(std::move(c.request));
-      {
-        std::lock_guard lock(c.channel.state_->mutex);
-        c.channel.state_->queue.push_back(ex);
-      }
+    return node<Call<Req, Reply>>(
+        [](Call<Req, Reply> c) -> Task<Result<Out, Err>> {
+          auto ex = std::make_shared<exchange>(std::move(c.request));
+          {
+            std::lock_guard lock(c.channel.state_->mutex);
+            c.channel.state_->queue.push_back(ex);
+          }
 
-      struct cancel_on_exit {
-        exchange& ex;
-        ~cancel_on_exit() {
-          std::lock_guard lock(ex.mutex);
-          ex.cancelled = true;
-        }
-      } guard{*ex};
+          struct cancel_on_exit {
+            exchange& ex;
+            ~cancel_on_exit() {
+              std::lock_guard lock(ex.mutex);
+              ex.cancelled = true;
+            }
+          } guard{*ex};
 
-      for (;;) {
-        {
-          std::lock_guard lock(ex->mutex);
-          if (ex->reply) co_return detail::to_result<Out, Err>(std::move(*ex->reply));
-        }
-        co_await running;
-      }
-    });
+          for (;;) {
+            {
+              std::lock_guard lock(ex->mutex);
+              if (ex->reply)
+                co_return detail::to_result<Out, Err>(std::move(*ex->reply));
+            }
+            co_await running;
+          }
+        });
   }
 
  private:
