@@ -51,3 +51,24 @@ jobs:
         with:
           name: mission-${{ matrix.os }}.rrd
           path: build-rerun/mission.rrd
+
+  roboplan-example:
+    name: Roboplan example (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: prefix-dev/setup-pixi@v0.11.0
+        with:
+          environments: roboplan
+          locked: true
+          cache: true
+      - name: Build and record
+        run: pixi run -e roboplan roboplan-record
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ur5-${{ matrix.os }}.rrd
+          path: build-roboplan/ur5.rrd

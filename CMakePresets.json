@@ -35,6 +35,17 @@
       }
     },
     {
+      "name": "roboplan",
+      "displayName": "Release build of the roboplan UR5 example",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build-roboplan",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BEET_BUILD_EXAMPLES": "ON",
+        "BEET_BUILD_ROBOPLAN_EXAMPLE": "ON"
+      }
+    },
+    {
       "name": "bench",
       "displayName": "Release build of the benchmarks",
       "inherits": "base",
@@ -48,6 +59,7 @@
   "buildPresets": [
     { "name": "dev", "configurePreset": "dev" },
     { "name": "rerun", "configurePreset": "rerun" },
+    { "name": "roboplan", "configurePreset": "roboplan" },
     { "name": "bench", "configurePreset": "bench" }
   ],
   "testPresets": [

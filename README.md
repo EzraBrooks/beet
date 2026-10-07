@@ -51,6 +51,28 @@ The same rules apply inside coroutine nodes. `co_await child(x)` yields the chil
 
 Leaves can be plain functions (`Out(In)` or `Result<Out, E>(In)`) or coroutines (`Task<Result<Out, E>>(In)`). Use `AnyNode<In, Out, Err>` to hide a subtree's concrete type behind a stable interface.
 
+## Long-running work and concurrent branches
+
+`beet::offload(fn)` runs a plain function on its own thread and stays running until it returns, so slow work such as motion planning does not stall the tick. `fn` may take a trailing `std::stop_token`, which is stopped if the node is halted.
+
+`beet::Channel<Req, Reply>` links branches that run side by side, such as a planner and a controller under `parallel_any`. `Channel::call()` is a node that takes a `beet::Call{channel, request}`, waits for the reply, and fails with the reply's errors when `Reply` is a `Result`. The server takes requests with `try_receive()` and answers with `reply()`; halting the caller cancels its request.
+
+Resources such as channels are ordinary values. A leaf creates them, and later nodes receive them through their inputs, so nothing is shared outside the tree and every dependency appears in a node's signature. [examples/roboplan_ur5.cpp](examples/roboplan_ur5.cpp) plans UR5 motions with [roboplan](https://github.com/open-planning/roboplan)'s RRT on an offloaded thread and hands the trajectories to a controller that runs on every tick, all logged to Rerun:
+
+```sh
+pixi run -e roboplan roboplan-example
+```
+
+Known gaps that example exposes:
+- **Threading resources:** a resource reaches later nodes only by riding along in every intermediate output, so node signatures carry values they only pass through.
+- **Parallel inputs:** parallel children must take an identical input type, even if each needs only part of it.
+- **Recover handlers** see only the error, not the node's input, so context they need has to travel in the error or be captured when the tree is built.
+- **Construction-time parameters:** decorator arguments such as the `repeat` count are fixed when the tree is built and cannot come from the tree's input.
+- **Same-type errors merge:** error sets are keyed by type, so two failures that are both `std::string` are indistinguishable. Wrap them in distinct types.
+- **Branches that never finish:** a controller can return `Result<never, never>`, but `parallel_any` still reports `variant<Out, never>` instead of collapsing it to `Out`.
+- **Cancellation:** halting an offloaded job only requests a stop; the function runs to completion unless it checks its `std::stop_token`.
+- **Thread safety:** offloaded functions run on other threads, and the compiler cannot check what they share.
+
 ## Opt-in tracing
 
 A tree's type already spells out its shape, so beet derives the structure at compile time rather than recording it at runtime. `beet::describe<Tree>()` returns a `constexpr` table with one entry per node, in depth-first order. Each entry holds the node's kind, label, parent, and the names of its input, output and error types. Labels are attached with `beet::named<"plan">(node)` and live only in the type.

@@ -22,7 +22,7 @@ example = { cmd = "./build/examples/robot_patrol", depends-on = ["build"] }
 bench-configure = "cmake --preset bench"
 bench-build = { cmd = "cmake --build --preset bench", depends-on = ["bench-configure"] }
 bench = { cmd = "./build-bench/benchmarks/tick_rate 5e6", depends-on = ["bench-build"] }
-clean = "rm -rf build build-rerun build-bench"
+clean = "rm -rf build build-rerun build-bench build-roboplan"
 
 [feature.rerun.dependencies]
 librerun-sdk = ">=0.38"
@@ -34,5 +34,17 @@ rerun-build = { cmd = "cmake --build --preset rerun", depends-on = ["rerun-confi
 rerun-example = { cmd = "./build-rerun/examples/rerun_status", depends-on = ["rerun-build"] }
 rerun-record = { cmd = "./build-rerun/examples/rerun_status --save build-rerun/mission.rrd", depends-on = ["rerun-build"] }
 
+[feature.roboplan.dependencies]
+libroboplan-rrt = ">=0.7"
+libroboplan-toppra = ">=0.7"
+libroboplan-example-models = ">=0.7"
+
+[feature.roboplan.tasks]
+roboplan-configure = "cmake --preset roboplan"
+roboplan-build = { cmd = "cmake --build --preset roboplan", depends-on = ["roboplan-configure"] }
+roboplan-example = { cmd = "./build-roboplan/examples/roboplan_ur5", depends-on = ["roboplan-build"] }
+roboplan-record = { cmd = "./build-roboplan/examples/roboplan_ur5 --save build-roboplan/ur5.rrd --goals 2", depends-on = ["roboplan-build"] }
+
 [environments]
 rerun = ["rerun"]
+roboplan = ["rerun", "roboplan"]
