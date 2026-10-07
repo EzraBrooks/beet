@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <functional>
 #include <stdexcept>
+#include <string_view>
 #include <utility>
 
 #include "beet/meta.hpp"
@@ -25,12 +26,16 @@ namespace detail {
 
 template <class N>
 struct retry_impl {
+  static constexpr std::string_view kind = "retry";
+  using children = type_list<N>;
+
   N inner;
   std::size_t attempts;
 
-  Task<result_t<N>> operator()(input_t<N> in) const {
+  template <class Trace>
+  Task<result_t<N>> run(input_t<N> in, Trace trace) const {
     for (std::size_t i = 1;; ++i) {
-      auto r = co_await settle(inner(in));
+      auto r = co_await settle(inner.run(in, child_trace<retry_impl, 0>(trace)));
       if (r || i >= attempts) co_return std::move(r);
     }
   }
@@ -38,12 +43,16 @@ struct retry_impl {
 
 template <class N>
 struct repeat_impl {
+  static constexpr std::string_view kind = "repeat";
+  using children = type_list<N>;
+
   N inner;
   std::size_t times;
 
-  Task<result_t<N>> operator()(input_t<N> in) const {
+  template <class Trace>
+  Task<result_t<N>> run(input_t<N> in, Trace trace) const {
     for (std::size_t i = 1;; ++i) {
-      auto value = co_await inner(in);
+      auto value = co_await inner.run(in, child_trace<repeat_impl, 0>(trace));
       if (i >= times) co_return std::move(value);
     }
   }
@@ -51,13 +60,16 @@ struct repeat_impl {
 
 template <class N>
 struct timeout_impl {
+  static constexpr std::string_view kind = "timeout_ticks";
+  using children = type_list<N>;
   using Err = error_union_t<error_t<N>, Timeout>;
 
   N inner;
   std::size_t ticks;
 
-  Task<Result<output_t<N>, Err>> operator()(input_t<N> in) const {
-    TaskRunner<result_t<N>> child(inner(std::move(in)));
+  template <class Trace>
+  Task<Result<output_t<N>, Err>> run(input_t<N> in, Trace trace) const {
+    TaskRunner<result_t<N>> child(inner.run(std::move(in), child_trace<timeout_impl, 0>(trace)));
     for (std::size_t t = 1;; ++t) {
       if (child.tick() != Status::Running) co_return to_result<output_t<N>, Err>(std::move(child.result()));
       if (t >= ticks) co_return make_unexpected(coerce<Err>(Timeout{ticks}));

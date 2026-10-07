@@ -3,6 +3,7 @@ project(beet VERSION 0.1.0 LANGUAGES CXX)
 
 option(BEET_BUILD_TESTS "Build beet tests" ${PROJECT_IS_TOP_LEVEL})
 option(BEET_BUILD_EXAMPLES "Build beet examples" ${PROJECT_IS_TOP_LEVEL})
+option(BEET_BUILD_RERUN_EXAMPLE "Build the Rerun status logging example (needs rerun_sdk)" OFF)
 
 include(FetchContent)
 
@@ -23,11 +24,11 @@ target_include_directories(beet INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOUR
 target_compile_features(beet INTERFACE cxx_std_20)
 target_link_libraries(beet INTERFACE tl::expected Threads::Threads)
 
+if(BEET_BUILD_EXAMPLES)
+  add_subdirectory(examples)
+endif()
+
 if(BEET_BUILD_TESTS)
   enable_testing()
   add_subdirectory(tests)
-endif()
-
-if(BEET_BUILD_EXAMPLES)
-  add_subdirectory(examples)
 endif()

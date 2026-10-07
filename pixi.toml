@@ -19,4 +19,16 @@ configure = "cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPOR
 build = { cmd = "cmake --build build", depends-on = ["configure"] }
 test = { cmd = "ctest --test-dir build --output-on-failure", depends-on = ["build"] }
 example = { cmd = "./build/examples/robot_patrol", depends-on = ["build"] }
-clean = "rm -rf build"
+clean = "rm -rf build build-rerun"
+
+[feature.rerun.dependencies]
+librerun-sdk = ">=0.38"
+rerun-sdk = ">=0.38"
+
+[feature.rerun.tasks]
+rerun-configure = "cmake -S . -B build-rerun -G Ninja -DCMAKE_BUILD_TYPE=Release -DBEET_BUILD_TESTS=OFF -DBEET_BUILD_EXAMPLES=ON -DBEET_BUILD_RERUN_EXAMPLE=ON"
+rerun-build = { cmd = "cmake --build build-rerun", depends-on = ["rerun-configure"] }
+rerun-example = { cmd = "./build-rerun/examples/rerun_status", depends-on = ["rerun-build"] }
+
+[environments]
+rerun = ["rerun"]

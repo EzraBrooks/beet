@@ -1,7 +1,9 @@
 #pragma once
 
 #include <concepts>
+#include <cstddef>
 #include <functional>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 
@@ -142,9 +144,12 @@ std::function<Task<Result<Out, Err>>(In)> erase(N n) {
 
 template <class F, class In>
 struct lift_impl {
+  static constexpr std::string_view kind = "leaf";
+
   F f;
 
-  auto operator()(In in) const {
+  template <class Trace>
+  auto run(In in, Trace) const {
     if constexpr (std::is_invocable_v<const F&, In>) {
       return call(f, std::move(in));
     } else {
@@ -152,6 +157,68 @@ struct lift_impl {
     }
   }
 };
+
+/// Trace used when no observer is attached. Every tracing hook on this path compiles to nothing.
+struct untraced {
+  template <std::size_t Offset>
+  constexpr untraced child() const noexcept {
+    return {};
+  }
+};
+
+template <class Impl>
+inline constexpr bool is_transparent_v = requires { Impl::transparent; };
+
+template <class Impl>
+struct impl_children {
+  using type = type_list<>;
+};
+template <class Impl>
+  requires requires { typename Impl::children; }
+struct impl_children<Impl> {
+  using type = typename Impl::children;
+};
+
+template <class N>
+struct subtree_size;
+
+/// Number of nodes in `Impl`'s subtree, counting itself. Transparent impls (labels) add none.
+template <class Impl, class Children = typename impl_children<Impl>::type>
+struct impl_subtree_size;
+template <class Impl, class... Cs>
+struct impl_subtree_size<Impl, type_list<Cs...>> {
+  static constexpr std::size_t value = [] {
+    if constexpr (is_transparent_v<Impl>) {
+      return subtree_size<typename Impl::inner_type>::value;
+    } else {
+      return (std::size_t{1} + ... + subtree_size<Cs>::value);
+    }
+  }();
+};
+
+template <class Impl, class In, class Out, class Err>
+struct subtree_size<Node<Impl, In, Out, Err>> : std::integral_constant<std::size_t, impl_subtree_size<Impl>::value> {};
+
+template <class N>
+inline constexpr std::size_t subtree_size_v = subtree_size<std::remove_cvref_t<N>>::value;
+
+/// Depth-first ID of child `I` relative to its parent.
+template <class Impl, std::size_t I, class Children = typename impl_children<Impl>::type>
+struct child_offset;
+template <class Impl, std::size_t I, class... Cs>
+struct child_offset<Impl, I, type_list<Cs...>> {
+  static constexpr std::size_t value = [] {
+    constexpr std::size_t sizes[] = {subtree_size<Cs>::value..., 0};
+    std::size_t offset = 1;
+    for (std::size_t j = 0; j < I; ++j) offset += sizes[j];
+    return offset;
+  }();
+};
+
+template <class Impl, std::size_t I, class Trace>
+constexpr auto child_trace(const Trace& trace) {
+  return trace.template child<child_offset<Impl, I>::value>();
+}
 
 }  // namespace detail
 
@@ -166,6 +233,7 @@ class Node {
   using output_type = Out;
   using error_type = Err;
   using result_type = Result<Out, Err>;
+  using impl_type = Impl;
 
   explicit Node(Impl impl) : impl_(std::move(impl)) {}
 
@@ -174,7 +242,17 @@ class Node {
     requires(detail::is_std_function<Impl>::value && !std::is_same_v<std::remove_cvref_t<Other>, Node>)
   Node(Other other) : impl_(detail::erase<In, Out, Err>(std::move(other))) {}
 
-  Task<result_type> operator()(In in) const { return impl_(std::move(in)); }
+  Task<result_type> operator()(In in) const { return run(std::move(in), detail::untraced{}); }
+
+  /// Runs the node under `trace`. Only traces other than `untraced` report events to an observer.
+  template <class Trace>
+  Task<result_type> run(In in, Trace trace) const {
+    if constexpr (std::is_same_v<Trace, detail::untraced> || detail::is_transparent_v<Impl>) {
+      return run_impl(std::move(in), trace);
+    } else {
+      return trace.wrap(run_impl(std::move(in), trace));
+    }
+  }
 
   /// Runs `next` on this node's output. Error sets are combined.
   template <class Next>
@@ -194,6 +272,15 @@ class Node {
   auto finally(F f) const;
 
  private:
+  template <class Trace>
+  Task<result_type> run_impl(In in, Trace trace) const {
+    if constexpr (detail::is_std_function<Impl>::value) {
+      return impl_(std::move(in));
+    } else {
+      return impl_.run(std::move(in), trace);
+    }
+  }
+
   Impl impl_;
 };
 
@@ -208,7 +295,7 @@ auto node(F f) {
     return f;
   } else {
     using Impl = detail::lift_impl<F, In>;
-    using L = detail::lift_of<decltype(std::declval<const Impl&>()(std::declval<In>()))>;
+    using L = detail::lift_of<decltype(std::declval<const Impl&>().run(std::declval<In>(), detail::untraced{}))>;
     return Node<Impl, In, typename L::out, typename L::err>(Impl{std::move(f)});
   }
 }

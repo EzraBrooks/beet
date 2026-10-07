@@ -15,7 +15,8 @@ add_executable(
   node_test.cpp
   combinators_test.cpp
   parallel_test.cpp
-  decorators_test.cpp)
+  decorators_test.cpp
+  observe_test.cpp)
 target_link_libraries(beet_tests PRIVATE beet::beet doctest::doctest)
 target_compile_options(beet_tests PRIVATE ${BEET_WARNINGS})
 add_test(NAME beet_tests COMMAND beet_tests)
@@ -32,3 +33,15 @@ beet_compile_fail(cf_then_type_mismatch "then\\(\\) target cannot accept this no
 beet_compile_fail(cf_recover_unknown_error "recover<E>\\(\\) names an error type this node cannot produce")
 beet_compile_fail(cf_await_uncovered_error "errors are not covered by this coroutine's error set")
 beet_compile_fail(cf_parallel_input_mismatch "parallel children must share one input type")
+
+# Tracing must leave no symbols in binaries that never attach an observer. The traced test binary
+# is the positive control that proves the pattern matches when tracing is used.
+set(BEET_TRACE_SYMBOLS "beet::detail::(observe|traced|halt_guard)<")
+if(TARGET robot_patrol)
+  add_test(NAME no_trace_symbols_untraced
+           COMMAND ${CMAKE_COMMAND} -DNM=${CMAKE_NM} -DBINARY=$<TARGET_FILE:robot_patrol>
+                   -DPATTERN=${BEET_TRACE_SYMBOLS} -DEXPECT_MATCH=OFF -P ${CMAKE_CURRENT_SOURCE_DIR}/check_symbols.cmake)
+endif()
+add_test(NAME trace_symbols_traced
+         COMMAND ${CMAKE_COMMAND} -DNM=${CMAKE_NM} -DBINARY=$<TARGET_FILE:beet_tests>
+                 -DPATTERN=${BEET_TRACE_SYMBOLS} -DEXPECT_MATCH=ON -P ${CMAKE_CURRENT_SOURCE_DIR}/check_symbols.cmake)

@@ -4,6 +4,7 @@
 #include <concepts>
 #include <cstddef>
 #include <optional>
+#include <string_view>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -49,33 +50,44 @@ struct common_input<C, Cs...> {
   using type = std::conditional_t<std::is_same_v<input_t<C>, unit>, typename common_input<Cs...>::type, input_t<C>>;
 };
 
-template <class... Cs>
+template <class Policy>
+inline constexpr std::string_view parallel_kind = "parallel_n";
+template <>
+inline constexpr std::string_view parallel_kind<all_policy> = "parallel_all";
+template <>
+inline constexpr std::string_view parallel_kind<any_policy> = "parallel_any";
+
+template <class Impl, class... Cs>
 struct runner_set {
   std::tuple<TaskRunner<result_t<Cs>>...> runners;
   std::array<runner_base*, sizeof...(Cs)> ptrs;
 
-  template <class In>
-  runner_set(const std::tuple<Cs...>& children, const In& in)
-      : runner_set(children, in, std::index_sequence_for<Cs...>{}) {}
+  template <class In, class Trace>
+  runner_set(const std::tuple<Cs...>& children, const In& in, Trace trace)
+      : runner_set(children, in, trace, std::index_sequence_for<Cs...>{}) {}
 
-  template <class In, std::size_t... I>
-  runner_set(const std::tuple<Cs...>& children, const In& in, std::index_sequence<I...>)
-      : runners(std::get<I>(children)(feed<Cs>(in))...), ptrs{&std::get<I>(runners)...} {}
+  template <class In, class Trace, std::size_t... I>
+  runner_set(const std::tuple<Cs...>& children, const In& in, Trace trace, std::index_sequence<I...>)
+      : runners(std::get<I>(children).run(feed<Cs>(in), child_trace<Impl, I>(trace))...),
+        ptrs{&std::get<I>(runners)...} {}
 };
 
 template <class Policy, class... Cs>
 struct parallel_impl {
+  static constexpr std::string_view kind = parallel_kind<Policy>;
+  using children = type_list<Cs...>;
   using In = typename common_input<Cs...>::type;
   using Out = typename parallel_types<Policy, Cs...>::out;
   using Err = error_union_t<error_t<Cs>...>;
   using R = Result<Out, Err>;
   static constexpr std::size_t count = sizeof...(Cs);
 
-  std::tuple<Cs...> children;
+  std::tuple<Cs...> nodes;
   Executor* executor;
 
-  Task<R> operator()(In in) const {
-    runner_set<Cs...> set(children, in);
+  template <class Trace>
+  Task<R> run(In in, Trace trace) const {
+    runner_set<parallel_impl, Cs...> set(nodes, in, trace);
     for (;;) {
       executor->bulk(count, [&set](std::size_t i) { set.ptrs[i]->tick(); });
       if (auto outcome = decide(set.runners, Policy{}, std::index_sequence_for<Cs...>{})) {

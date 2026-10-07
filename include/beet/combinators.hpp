@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -17,15 +19,18 @@ inline constexpr bool accepts_any_input_v = std::is_same_v<input_t<N>, unit>;
 
 template <class A, class B>
 struct then_impl {
+  static constexpr std::string_view kind = "then";
+  using children = type_list<A, B>;
   using Out = output_t<B>;
   using Err = error_union_t<error_t<A>, error_t<B>>;
 
   A a;
   B b;
 
-  Task<Result<Out, Err>> operator()(input_t<A> in) const {
-    auto value = co_await a(std::move(in));
-    co_return co_await b(feed<B>(std::move(value)));
+  template <class Trace>
+  Task<Result<Out, Err>> run(input_t<A> in, Trace trace) const {
+    auto value = co_await a.run(std::move(in), child_trace<then_impl, 0>(trace));
+    co_return co_await b.run(feed<B>(std::move(value)), child_trace<then_impl, 1>(trace));
   }
 };
 
@@ -40,14 +45,17 @@ struct recover_impl<N, Handler, type_list<Hs...>> {
   template <class E>
   using handler_error_t = typename lift_of<std::invoke_result_t<const Handler&, E&&>>::err;
 
+  static constexpr std::string_view kind = "recover";
+  using children = type_list<N>;
   using Out = output_t<N>;
   using Err = error_union_t<error_remove_t<error_t<N>, Hs...>, handler_error_t<Hs>...>;
 
   N inner;
   Handler handler;
 
-  Task<Result<Out, Err>> operator()(input_t<N> in) const {
-    auto r = co_await settle(inner(std::move(in)));
+  template <class Trace>
+  Task<Result<Out, Err>> run(input_t<N> in, Trace trace) const {
+    auto r = co_await settle(inner.run(std::move(in), child_trace<recover_impl, 0>(trace)));
     if (r) co_return std::move(*r);
     if constexpr (is_variant_v<error_t<N>>) {
       co_return co_await settle(std::visit([this](auto& e) { return this->handle(std::move(e)); }, r.error()));
@@ -68,21 +76,28 @@ struct recover_impl<N, Handler, type_list<Hs...>> {
 
 template <class A, class B>
 struct fallback_impl {
+  static constexpr std::string_view kind = "fallback";
+  using children = type_list<A, B>;
   using Out = union_t<output_t<A>, output_t<B>>;
   using Err = error_t<B>;
 
   A a;
   B b;
 
-  Task<Result<Out, Err>> operator()(input_t<A> in) const {
-    auto first = co_await settle(a(in));
+  template <class Trace>
+  Task<Result<Out, Err>> run(input_t<A> in, Trace trace) const {
+    auto first = co_await settle(a.run(in, child_trace<fallback_impl, 0>(trace)));
     if (first) co_return coerce<Out>(std::move(*first));
-    co_return to_result<Out, Err>(co_await settle(b(feed<B>(std::move(in)))));
+    co_return to_result<Out, Err>(
+        co_await settle(b.run(feed<B>(std::move(in)), child_trace<fallback_impl, 1>(trace))));
   }
 };
 
 template <class N, class F>
 struct finally_impl {
+  static constexpr std::string_view kind = "finally";
+  using children = type_list<N>;
+
   struct guard {
     const F* f;
     ~guard() { (*f)(); }
@@ -91,9 +106,35 @@ struct finally_impl {
   N inner;
   F f;
 
-  Task<result_t<N>> operator()(input_t<N> in) const {
+  template <class Trace>
+  Task<result_t<N>> run(input_t<N> in, Trace trace) const {
     guard g{&f};
-    co_return co_await settle(inner(std::move(in)));
+    co_return co_await settle(inner.run(std::move(in), child_trace<finally_impl, 0>(trace)));
+  }
+};
+
+template <std::size_t N>
+struct fixed_string {
+  char chars[N]{};
+
+  constexpr fixed_string(const char (&s)[N]) {
+    for (std::size_t i = 0; i < N; ++i) chars[i] = s[i];
+  }
+  constexpr std::string_view view() const { return {chars, N - 1}; }
+};
+
+/// Attaches a label to a node. Transparent: it adds no node, no ID, and no runtime state.
+template <fixed_string Label, class N>
+struct named_impl {
+  static constexpr bool transparent = true;
+  static constexpr std::string_view label = Label.view();
+  using inner_type = N;
+
+  N inner;
+
+  template <class Trace>
+  Task<result_t<N>> run(input_t<N> in, Trace trace) const {
+    return inner.run(std::move(in), trace);
   }
 };
 
@@ -162,6 +203,14 @@ template <class A, class B>
   requires(node_type<A> || node_type<B>)
 auto operator|(A a, B b) {
   return node(std::move(a)).then(std::move(b));
+}
+
+/// Labels a node for observers, e.g. `named<"plan">(plan_path)`. The label lives only in the type.
+template <detail::fixed_string Label, class N>
+auto named(N n) {
+  auto inner = node(std::move(n));
+  using I = detail::named_impl<Label, decltype(inner)>;
+  return Node<I, input_t<decltype(inner)>, output_t<decltype(inner)>, error_t<decltype(inner)>>(I{std::move(inner)});
 }
 
 }  // namespace beet
