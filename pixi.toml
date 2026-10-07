@@ -15,19 +15,22 @@ cpp-expected = ">=1.1"
 doctest = ">=2.4"
 
 [tasks]
-configure = "cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DBEET_BUILD_TESTS=ON -DBEET_BUILD_EXAMPLES=ON"
-build = { cmd = "cmake --build build", depends-on = ["configure"] }
-test = { cmd = "ctest --test-dir build --output-on-failure", depends-on = ["build"] }
+configure = "cmake --preset dev"
+build = { cmd = "cmake --build --preset dev", depends-on = ["configure"] }
+test = { cmd = "ctest --preset dev", depends-on = ["build"] }
 example = { cmd = "./build/examples/robot_patrol", depends-on = ["build"] }
-clean = "rm -rf build build-rerun"
+bench-configure = "cmake --preset bench"
+bench-build = { cmd = "cmake --build --preset bench", depends-on = ["bench-configure"] }
+bench = { cmd = "./build-bench/benchmarks/tick_rate 5e6", depends-on = ["bench-build"] }
+clean = "rm -rf build build-rerun build-bench"
 
 [feature.rerun.dependencies]
 librerun-sdk = ">=0.38"
 rerun-sdk = ">=0.38"
 
 [feature.rerun.tasks]
-rerun-configure = "cmake -S . -B build-rerun -G Ninja -DCMAKE_BUILD_TYPE=Release -DBEET_BUILD_TESTS=OFF -DBEET_BUILD_EXAMPLES=ON -DBEET_BUILD_RERUN_EXAMPLE=ON"
-rerun-build = { cmd = "cmake --build build-rerun", depends-on = ["rerun-configure"] }
+rerun-configure = "cmake --preset rerun"
+rerun-build = { cmd = "cmake --build --preset rerun", depends-on = ["rerun-configure"] }
 rerun-example = { cmd = "./build-rerun/examples/rerun_status", depends-on = ["rerun-build"] }
 rerun-record = { cmd = "./build-rerun/examples/rerun_status --save build-rerun/mission.rrd", depends-on = ["rerun-build"] }
 

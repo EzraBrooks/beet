@@ -1,0 +1,11 @@
+include(CheckCXXCompilerFlag)
+check_cxx_compiler_flag(-march=native BEET_HAS_MARCH_NATIVE)
+check_cxx_compiler_flag(-mcpu=native BEET_HAS_MCPU_NATIVE)
+
+add_executable(tick_rate tick_rate.cpp)
+target_link_libraries(tick_rate PRIVATE beet::beet)
+if(BEET_HAS_MARCH_NATIVE)
+  target_compile_options(tick_rate PRIVATE -march=native)
+elseif(BEET_HAS_MCPU_NATIVE)
+  target_compile_options(tick_rate PRIVATE -mcpu=native)
+endif()

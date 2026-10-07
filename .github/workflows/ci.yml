@@ -28,6 +28,8 @@ jobs:
         run: pixi run test
       - name: Run robot_patrol example
         run: pixi run example
+      - name: Benchmark tick rate
+        run: pixi run bench
 
   rerun-example:
     name: Rerun example (${{ matrix.os }})
