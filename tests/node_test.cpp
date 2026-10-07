@@ -8,7 +8,6 @@
 
 namespace {
 
-using beet::error_t;
 using beet::input_t;
 using beet::never;
 using beet::output_t;
@@ -36,11 +35,11 @@ auto n_function = beet::node(std::function<int(const int&)>(twice));
 
 static_assert(std::is_same_v<input_t<decltype(n_plain)>, int>);
 static_assert(std::is_same_v<output_t<decltype(n_plain)>, int>);
-static_assert(std::is_same_v<error_t<decltype(n_plain)>, never>);
+static_assert(std::is_same_v<beet::error_t<decltype(n_plain)>, never>);
 static_assert(std::is_same_v<output_t<decltype(n_result)>, std::string>);
-static_assert(std::is_same_v<error_t<decltype(n_result)>, Bad>);
+static_assert(std::is_same_v<beet::error_t<decltype(n_result)>, Bad>);
 static_assert(std::is_same_v<output_t<decltype(n_task)>, double>);
-static_assert(std::is_same_v<error_t<decltype(n_task)>, Worse>);
+static_assert(std::is_same_v<beet::error_t<decltype(n_task)>, Worse>);
 static_assert(std::is_same_v<input_t<decltype(n_void)>, unit>);
 static_assert(std::is_same_v<output_t<decltype(n_void)>, unit>);
 static_assert(std::is_same_v<output_t<decltype(n_generic)>, int>);

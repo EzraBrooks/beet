@@ -8,7 +8,6 @@
 
 namespace {
 
-using beet::error_t;
 using beet::input_t;
 using beet::never;
 using beet::output_t;
@@ -52,7 +51,7 @@ auto run(const N& n, input_t<N> in) {
 TEST_CASE("then pipes outputs into inputs and unions the error sets") {
   auto tree = beet::node(non_negative).then(small).then(show);
   static_assert(std::is_same_v<output_t<decltype(tree)>, std::string>);
-  static_assert(std::is_same_v<error_t<decltype(tree)>, std::variant<Negative, TooBig>>);
+  static_assert(std::is_same_v<beet::error_t<decltype(tree)>, std::variant<Negative, TooBig>>);
 
   CHECK(run(tree, 42).value() == "42");
   CHECK(std::holds_alternative<Negative>(run(tree, -1).error()));
@@ -62,7 +61,7 @@ TEST_CASE("then pipes outputs into inputs and unions the error sets") {
 TEST_CASE("pipe operator and sequence are spellings of then") {
   auto piped = beet::node(non_negative) | small | show;
   auto seq = beet::sequence(non_negative, small, show);
-  static_assert(std::is_same_v<error_t<decltype(piped)>, error_t<decltype(seq)>>);
+  static_assert(std::is_same_v<beet::error_t<decltype(piped)>, beet::error_t<decltype(seq)>>);
   CHECK(run(piped, 7).value() == "7");
   CHECK(run(seq, 7).value() == "7");
 }
@@ -86,14 +85,14 @@ TEST_CASE("then waits on running children") {
 
 TEST_CASE("recover<E> removes only the handled error type") {
   auto tree = beet::node(non_negative).then(small).recover<TooBig>([](TooBig t) { return t.value / 10; });
-  static_assert(std::is_same_v<error_t<decltype(tree)>, Negative>);
+  static_assert(std::is_same_v<beet::error_t<decltype(tree)>, Negative>);
   CHECK(run(tree, 500).value() == 50);
   CHECK_FALSE(run(tree, -1).has_value());
 }
 
 TEST_CASE("recover with no listed types handles everything and yields an infallible node") {
   auto tree = beet::node(non_negative).then(small).recover([](const auto&) { return 0; });
-  static_assert(std::is_same_v<error_t<decltype(tree)>, never>);
+  static_assert(std::is_same_v<beet::error_t<decltype(tree)>, never>);
   CHECK(run(tree, -1).value() == 0);
   CHECK(run(tree, 500).value() == 0);
   CHECK(run(tree, 5).value() == 5);
@@ -103,7 +102,7 @@ TEST_CASE("a recover handler returning Result translates errors") {
   auto tree = beet::node(non_negative).recover([](Negative) -> Result<int, Rewritten> {
     return beet::make_unexpected(Rewritten{"negative input"});
   });
-  static_assert(std::is_same_v<error_t<decltype(tree)>, Rewritten>);
+  static_assert(std::is_same_v<beet::error_t<decltype(tree)>, Rewritten>);
   CHECK(run(tree, -2).error().why == "negative input");
   CHECK(run(tree, 2).value() == 2);
 }
@@ -134,7 +133,7 @@ TEST_CASE("fallback tries the next alternative on the same input") {
     return 100;
   });
   static_assert(std::is_same_v<output_t<decltype(tree)>, int>);
-  static_assert(std::is_same_v<error_t<decltype(tree)>, Negative>);
+  static_assert(std::is_same_v<beet::error_t<decltype(tree)>, Negative>);
   CHECK(run(tree, 5).value() == 5);
   CHECK(run(tree, 500).value() == 100);
 }
@@ -142,7 +141,7 @@ TEST_CASE("fallback tries the next alternative on the same input") {
 TEST_CASE("fallback with differing outputs yields a variant") {
   auto tree = beet::fallback(small, show);
   static_assert(std::is_same_v<output_t<decltype(tree)>, std::variant<int, std::string>>);
-  static_assert(std::is_same_v<error_t<decltype(tree)>, never>);
+  static_assert(std::is_same_v<beet::error_t<decltype(tree)>, never>);
   CHECK(std::get<int>(run(tree, 5).value()) == 5);
   CHECK(std::get<std::string>(run(tree, 500).value()) == "500");
 }

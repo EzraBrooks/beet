@@ -86,7 +86,7 @@ constexpr void describe_into(std::array<node_info, S>& out, std::uint32_t id, st
                              std::string_view label);
 
 template <class Impl, std::size_t S, class... Cs, std::size_t... I>
-constexpr void describe_children(std::array<node_info, S>& out, std::uint32_t id, type_list<Cs...>,
+constexpr void describe_children(std::array<node_info, S>& out, [[maybe_unused]] std::uint32_t id, type_list<Cs...>,
                                  std::index_sequence<I...>) {
   (describe_into<Cs>(out, static_cast<std::uint32_t>(id + child_offset<Impl, I>::value), id, {}), ...);
 }

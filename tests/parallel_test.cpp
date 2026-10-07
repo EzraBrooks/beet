@@ -11,7 +11,6 @@
 
 namespace {
 
-using beet::error_t;
 using beet::input_t;
 using beet::never;
 using beet::output_t;
@@ -56,7 +55,7 @@ TEST_CASE("parallel_all ticks children together and returns a tuple") {
   auto tree = beet::parallel_all(job(1, 3), job(2, 1), beet::node([](int x) { return std::to_string(x); }));
   static_assert(std::is_same_v<input_t<decltype(tree)>, int>);
   static_assert(std::is_same_v<output_t<decltype(tree)>, std::tuple<int, int, std::string>>);
-  static_assert(std::is_same_v<error_t<decltype(tree)>, Failed>);
+  static_assert(std::is_same_v<beet::error_t<decltype(tree)>, Failed>);
 
   beet::Runner r{tree, 100};
   CHECK(ticks_to_finish(r) == 3);
