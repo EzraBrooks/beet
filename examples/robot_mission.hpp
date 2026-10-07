@@ -88,15 +88,21 @@ inline Summary report(std::tuple<Odom, Level> done) {
 }
 
 inline auto make_mission() {
-  auto tree =
-      beet::named<"plan">(plan_path)
-          .then(beet::named<"drive and watch">(
-              beet::parallel_all(beet::named<"drive">(drive), beet::named<"battery">(watch_battery))))
-          .then(beet::named<"report">(report))
-          .recover<LowBattery>([](LowBattery b) {
-            return Summary{"returned to dock at " + std::to_string(b.percent) + "% battery"};
-          })
-          .recover([](const auto& e) { return Summary{describe(e)}; });
+  auto dock = [](LowBattery b) { return Summary{"returned to dock at " + std::to_string(b.percent) + "% battery"}; };
+  auto abort = [](const auto& e) { return Summary{describe(e)}; };
+
+  // clang-format off
+  auto tree = beet::recover(
+      beet::recover<LowBattery>(
+          beet::sequence(
+              beet::named<"plan">(plan_path),
+              beet::named<"drive and watch">(beet::parallel_all(
+                  beet::named<"drive">(drive),
+                  beet::named<"battery">(watch_battery))),
+              beet::named<"report">(report)),
+          dock),
+      abort);
+  // clang-format on
 
   static_assert(std::is_same_v<beet::error_t<decltype(tree)>, beet::never>,
                 "every failure is handled, so the mission cannot fail");

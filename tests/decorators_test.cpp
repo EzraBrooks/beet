@@ -81,7 +81,7 @@ TEST_CASE("condition passes its input through or fails") {
   static_assert(std::is_same_v<input_t<decltype(positive)>, int>);
   static_assert(std::is_same_v<beet::error_t<decltype(positive)>, beet::ConditionFailed>);
 
-  auto tree = positive.then([](int x) { return x * 10; });
+  auto tree = beet::sequence(positive, [](int x) { return x * 10; });
   beet::Runner yes{tree, 4};
   yes.tick();
   CHECK(yes.result().value() == 40);

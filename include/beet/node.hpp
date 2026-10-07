@@ -254,23 +254,6 @@ class Node {
     }
   }
 
-  /// Runs `next` on this node's output. Error sets are combined.
-  template <class Next>
-  auto then(Next next) const;
-
-  /// Handles the listed error types (all of them if none are listed) and removes them from the error set.
-  /// The handler may return `Out`, `Result<Out, E2>`, or `Task<Result<Out, E2>>`; `E2` joins the error set.
-  template <class... Es, class Handler>
-  auto recover(Handler handler) const;
-
-  /// Runs `alt` on the same input if this node fails. The error is `alt`'s.
-  template <class Alt>
-  auto fallback(Alt alt) const;
-
-  /// Calls `f()` when this node finishes, fails, or is halted.
-  template <class F>
-  auto finally(F f) const;
-
  private:
   template <class Trace>
   Task<result_type> run_impl(In in, Trace trace) const {

@@ -298,17 +298,25 @@ Task<Result<beet::never, beet::never>> controller(Cell cell) {
 
 // Recover handlers only see the error, so the stream they log to is captured when the tree is built.
 auto make_tree(std::size_t goals, std::shared_ptr<const rerun::RecordingStream> rec) {
-  auto mission = beet::named<"choose goal">(choose_goal)
-                     .then(beet::named<"rrt">(beet::offload(plan_rrt)))
-                     .then(beet::named<"toppra">(parameterize))
-                     .then(beet::named<"execute">(Trajectories::call()))
-                     .recover<PlanningFailed, ParameterizationFailed, StartMismatch>([rec](const auto& e) {
-                       rec->log("log", rerun::TextLog("skipping goal: " + describe(e)).with_level(rerun::TextLogLevel::Warning));
-                       return ExecutionReport{};
-                     });
+  auto skip_goal = [rec](const auto& e) {
+    rec->log("log", rerun::TextLog("skipping goal: " + describe(e)).with_level(rerun::TextLogLevel::Warning));
+    return ExecutionReport{};
+  };
 
-  return beet::named<"open cell">(open_cell).then(beet::parallel_any(
-      beet::named<"missions">(beet::repeat(goals, mission)), beet::named<"controller">(controller)));
+  // clang-format off
+  return beet::sequence(
+      beet::named<"open cell">(open_cell),
+      beet::parallel_any(
+          beet::named<"missions">(beet::repeat(goals,
+              beet::recover<PlanningFailed, ParameterizationFailed, StartMismatch>(
+                  beet::sequence(
+                      beet::named<"choose goal">(choose_goal),
+                      beet::named<"rrt">(beet::offload(plan_rrt)),
+                      beet::named<"toppra">(parameterize),
+                      beet::named<"execute">(Trajectories::call())),
+                  skip_goal))),
+          beet::named<"controller">(controller)));
+  // clang-format on
 }
 
 }  // namespace

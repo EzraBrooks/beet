@@ -44,21 +44,19 @@ struct Recorder {
 };
 static_assert(beet::observer<Recorder>);
 
-// then(recover(then(check, twice)), named(slow)) has IDs:
-//   0 then, 1 recover, 2 then, 3 check, 4 twice, 5 slow
+// sequence(recover(sequence(check, twice)), named(slow)) has IDs:
+//   0 sequence, 1 recover, 2 sequence, 3 check, 4 twice, 5 slow
 auto make_tree() {
-  return beet::node(check)
-      .then(twice)
-      .recover([](Bad) { return -1; })
-      .then(beet::named<"wait">(slow));
+  return beet::sequence(beet::recover(beet::sequence(check, twice), [](Bad) { return -1; }),
+                        beet::named<"wait">(slow));
 }
 using Tree = decltype(make_tree());
 
 constexpr auto info = beet::describe<Tree>();
 static_assert(info.size() == 6);
-static_assert(info[0].kind == "then" && info[0].parent == beet::no_parent);
+static_assert(info[0].kind == "sequence" && info[0].parent == beet::no_parent);
 static_assert(info[1].kind == "recover" && info[1].parent == 0);
-static_assert(info[2].kind == "then" && info[2].parent == 1);
+static_assert(info[2].kind == "sequence" && info[2].parent == 1);
 static_assert(info[3].kind == "leaf" && info[3].parent == 2);
 static_assert(info[4].kind == "leaf" && info[4].parent == 2);
 static_assert(info[5].kind == "leaf" && info[5].parent == 0 && info[5].label == "wait");

@@ -80,6 +80,6 @@ TEST_CASE("AnyNode erases a subtree's type and can widen its error set") {
   REQUIRE_FALSE(failed.has_value());
   CHECK(std::holds_alternative<Bad>(failed.error()));
 
-  beet::AnyNode<int, int, Bad> chained = beet::node(twice).then(twice);
+  beet::AnyNode<int, int, Bad> chained = beet::sequence(twice, twice);
   CHECK(run_once(chained, 1).value() == 4);
 }

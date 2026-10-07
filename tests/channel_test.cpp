@@ -69,11 +69,10 @@ TEST_CASE("a leaf can create a channel shared by a caller and a server that neve
       co_await beet::running;
     }
   };
-  auto client = beet::node([](Doubler ch) { return beet::Call<int, Result<int, Bad>>{ch, 5}; })
-                    .then(Doubler::call())
-                    .then([](int x) { return x + 1; });
+  auto client = beet::sequence([](Doubler ch) { return beet::Call<int, Result<int, Bad>>{ch, 5}; }, Doubler::call(),
+                               [](int x) { return x + 1; });
 
-  auto tree = beet::node([] { return Doubler{}; }).then(beet::parallel_any(client, server));
+  auto tree = beet::sequence([] { return Doubler{}; }, beet::parallel_any(client, server));
   static_assert(std::is_same_v<beet::input_t<decltype(tree)>, beet::unit>);
 
   beet::Runner runner{tree};
