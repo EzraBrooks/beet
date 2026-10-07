@@ -45,6 +45,20 @@ roboplan-build = { cmd = "cmake --build --preset roboplan", depends-on = ["robop
 roboplan-example = { cmd = "./build-roboplan/examples/roboplan_ur5", depends-on = ["roboplan-build"] }
 roboplan-record = { cmd = "./build-roboplan/examples/roboplan_ur5 --save build-roboplan/ur5.rrd --goals 2", depends-on = ["roboplan-build"] }
 
+[feature.lint.dependencies]
+# clang-tidy needs the builtin headers shipped with the matching clang release.
+clang-tools = "21.*"
+clang = "21.*"
+python = "*"
+
+[feature.lint.tasks]
+format = "clang-format -i include/beet/*.hpp tests/*.cpp tests/compile_fail/*.cpp examples/*.cpp examples/*.hpp benchmarks/*.cpp"
+format-check = "clang-format --dry-run --Werror include/beet/*.hpp tests/*.cpp tests/compile_fail/*.cpp examples/*.cpp examples/*.hpp benchmarks/*.cpp"
+# compile_fail sources are excluded because they are meant not to compile. The conda include directory is
+# implicit for GCC, so it is missing from compile_commands.json.
+lint = { cmd = "run-clang-tidy -p build -quiet -extra-arg=-isystem$CONDA_PREFIX/include '^(?!.*/compile_fail/).*\\.cpp$'", depends-on = ["configure"] }
+
 [environments]
 rerun = ["rerun"]
 roboplan = ["rerun", "roboplan"]
+lint = ["lint"]

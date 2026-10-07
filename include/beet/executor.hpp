@@ -17,15 +17,17 @@ class Executor {
  public:
   virtual ~Executor() = default;
 
-  /// Calls `fn(i)` for every `i` in `[0, n)` and returns once all calls have finished.
-  /// Rethrows the first exception thrown by any call.
-  virtual void bulk(std::size_t n, const std::function<void(std::size_t)>& fn) = 0;
+  /// Calls `fn(i)` for every `i` in `[0, n)` and returns once all calls have
+  /// finished. Rethrows the first exception thrown by any call.
+  virtual void bulk(std::size_t n,
+                    const std::function<void(std::size_t)>& fn) = 0;
 };
 
 /// Ticks children one after another on the calling thread, in order.
 class InlineExecutor final : public Executor {
  public:
-  void bulk(std::size_t n, const std::function<void(std::size_t)>& fn) override {
+  void bulk(std::size_t n,
+            const std::function<void(std::size_t)>& fn) override {
     for (std::size_t i = 0; i < n; ++i) fn(i);
   }
 };
@@ -35,13 +37,16 @@ inline Executor& inline_executor() {
   return executor;
 }
 
-/// Ticks children concurrently on a fixed set of worker threads. The calling thread helps run
-/// queued work while it waits, so nested parallel nodes on the same pool cannot deadlock.
+/// Ticks children concurrently on a fixed set of worker threads. The calling
+/// thread helps run queued work while it waits, so nested parallel nodes on the
+/// same pool cannot deadlock.
 class ThreadPoolExecutor final : public Executor {
  public:
-  explicit ThreadPoolExecutor(std::size_t threads = std::max(1u, std::thread::hardware_concurrency())) {
+  explicit ThreadPoolExecutor(
+      std::size_t threads = std::max(1u, std::thread::hardware_concurrency())) {
     workers_.reserve(threads);
-    for (std::size_t i = 0; i < threads; ++i) workers_.emplace_back([this] { work(); });
+    for (std::size_t i = 0; i < threads; ++i)
+      workers_.emplace_back([this] { work(); });
   }
 
   ThreadPoolExecutor(const ThreadPoolExecutor&) = delete;
@@ -56,7 +61,8 @@ class ThreadPoolExecutor final : public Executor {
     for (auto& worker : workers_) worker.join();
   }
 
-  void bulk(std::size_t n, const std::function<void(std::size_t)>& fn) override {
+  void bulk(std::size_t n,
+            const std::function<void(std::size_t)>& fn) override {
     if (n == 0) return;
 
     struct Batch {
@@ -81,7 +87,8 @@ class ThreadPoolExecutor final : public Executor {
 
     {
       std::lock_guard lock(mutex_);
-      for (std::size_t i = 1; i < n; ++i) jobs_.emplace_back([run, i] { run(i); });
+      for (std::size_t i = 1; i < n; ++i)
+        jobs_.emplace_back([run, i] { run(i); });
     }
     wake_.notify_all();
     run(0);

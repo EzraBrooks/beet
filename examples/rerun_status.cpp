@@ -1,7 +1,9 @@
-// Logs the robot mission's node statuses to Rerun as a graph, one frame per tick.
+// Logs the robot mission's node statuses to Rerun as a graph, one frame per
+// tick.
 //
 //   pixi run -e rerun rerun-example                 # spawns the viewer
-//   ./rerun_status --save mission.rrd               # writes a recording instead
+//   ./rerun_status --save mission.rrd               # writes a recording
+//   instead
 
 #include <cstdint>
 #include <string>
@@ -35,9 +37,11 @@ int main(int argc, char** argv) {
       status = runner.tick();
       rec.set_time_sequence("tick", frame++);
       const std::string running = graph.log(table);
-      rec.log("log", rerun::TextLog("goal " + std::to_string(run) + ": running [" + running + "]"));
+      rec.log("log", rerun::TextLog("goal " + std::to_string(run) +
+                                    ": running [" + running + "]"));
     } while (status == beet::Status::Running);
 
-    rec.log("log", rerun::TextLog("goal " + std::to_string(run) + ": " + runner.result()->text));
+    rec.log("log", rerun::TextLog("goal " + std::to_string(run) + ": " +
+                                  runner.result()->text));
   }
 }

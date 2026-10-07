@@ -10,6 +10,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: prefix-dev/setup-pixi@v0.11.0
+        with:
+          environments: lint
+          locked: true
+          cache: true
+      - name: Check formatting
+        run: pixi run -e lint format-check
+      - name: Run clang-tidy
+        run: pixi run -e lint lint
+
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

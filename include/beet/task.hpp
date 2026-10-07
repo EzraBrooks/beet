@@ -34,7 +34,8 @@ struct settle_t {
   Task<T> task;
 };
 
-/// Awaits a child and returns its whole `Result` instead of propagating its error.
+/// Awaits a child and returns its whole `Result` instead of propagating its
+/// error.
 template <class T>
 settle_t<T> settle(Task<T>&& task) {
   return {std::move(task)};
@@ -50,7 +51,8 @@ struct promise_base {
   std::coroutine_handle<> continuation;
   std::exception_ptr exception;
 
-  // Set when the awaiting parent propagates this task's error instead of resuming.
+  // Set when the awaiting parent propagates this task's error instead of
+  // resuming.
   promise_base* propagate_to = nullptr;
   std::coroutine_handle<> (*propagate)(promise_base& self) noexcept = nullptr;
 
@@ -103,11 +105,13 @@ struct raw_awaiter {
   }
 };
 
-/// Awaits a child `Result`, yielding its value; a failure completes the parent with the error.
+/// Awaits a child `Result`, yielding its value; a failure completes the parent
+/// with the error.
 template <class U, class T>
 struct try_awaiter {
   static_assert(error_subset_v<typename U::error_type, typename T::error_type>,
-                "beet: co_await on a child whose errors are not covered by this coroutine's error set");
+                "beet: co_await on a child whose errors are not covered by "
+                "this coroutine's error set");
 
   Task<U> task;
   promise_base* parent;
@@ -116,7 +120,8 @@ struct try_awaiter {
     auto& child = static_cast<promise<U>&>(self);
     if (!child.value || child.value->has_value()) return {};
     auto& outer = static_cast<promise<T>&>(*child.propagate_to);
-    outer.value.emplace(unexpect, coerce<typename T::error_type>(std::move(child.value->error())));
+    outer.value.emplace(unexpect, coerce<typename T::error_type>(
+                                      std::move(child.value->error())));
     return outer.on_final();
   }
 
@@ -171,7 +176,8 @@ struct promise final : promise_base {
 
 }  // namespace detail
 
-/// Lazily started coroutine. Destroying a suspended `Task` halts it and every child it is awaiting.
+/// Lazily started coroutine. Destroying a suspended `Task` halts it and every
+/// child it is awaiting.
 template <class T>
 class [[nodiscard]] Task {
  public:
@@ -192,7 +198,9 @@ class [[nodiscard]] Task {
     if (handle_) handle_.destroy();
   }
 
-  std::coroutine_handle<promise_type> handle() const noexcept { return handle_; }
+  std::coroutine_handle<promise_type> handle() const noexcept {
+    return handle_;
+  }
 
  private:
   friend promise_type;

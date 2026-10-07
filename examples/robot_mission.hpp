@@ -44,15 +44,20 @@ struct LowBattery {
   int percent;
 };
 
-inline std::string describe(const PlanError& e) { return "planning failed: " + e.why; }
+inline std::string describe(const PlanError& e) {
+  return "planning failed: " + e.why;
+}
 inline std::string describe(const Stuck& e) {
-  return "stuck at (" + std::to_string(e.where.x) + ", " + std::to_string(e.where.y) + ")";
+  return "stuck at (" + std::to_string(e.where.x) + ", " +
+         std::to_string(e.where.y) + ")";
 }
 
 inline Result<Path, PlanError> plan_path(Pose goal) {
-  if (goal.x < 0) return beet::make_unexpected(PlanError{"goal is outside the map"});
+  if (goal.x < 0)
+    return beet::make_unexpected(PlanError{"goal is outside the map"});
   Path path;
-  for (int i = 1; i <= 4; ++i) path.waypoints.push_back({goal.x * i / 4, goal.y * i / 4});
+  for (int i = 1; i <= 4; ++i)
+    path.waypoints.push_back({goal.x * i / 4, goal.y * i / 4});
   return path;
 }
 
@@ -69,13 +74,15 @@ inline Task<Result<Odom, Stuck>> drive(Path path) {
   co_return odom;
 }
 
-// Each leg drains the battery in proportion to its length. Fails as soon as the charge drops below 30%.
+// Each leg drains the battery in proportion to its length. Fails as soon as the
+// charge drops below 30%.
 inline Task<Result<Level, LowBattery>> watch_battery(Path path) {
   int percent = 70;
   Pose at;
   for (const Pose& next : path.waypoints) {
     co_await beet::running;
-    percent -= 2 + static_cast<int>(std::hypot(next.x - at.x, next.y - at.y) / 2);
+    percent -=
+        2 + static_cast<int>(std::hypot(next.x - at.x, next.y - at.y) / 2);
     at = next;
     if (percent < 30) co_return beet::make_unexpected(LowBattery{percent});
   }
@@ -84,11 +91,15 @@ inline Task<Result<Level, LowBattery>> watch_battery(Path path) {
 
 inline Summary report(std::tuple<Odom, Level> done) {
   auto [odom, level] = done;
-  return {"arrived after " + std::to_string(odom.distance) + "m with " + std::to_string(level.percent) + "% battery"};
+  return {"arrived after " + std::to_string(odom.distance) + "m with " +
+          std::to_string(level.percent) + "% battery"};
 }
 
 inline auto make_mission() {
-  auto dock = [](LowBattery b) { return Summary{"returned to dock at " + std::to_string(b.percent) + "% battery"}; };
+  auto dock = [](LowBattery b) {
+    return Summary{"returned to dock at " + std::to_string(b.percent) +
+                   "% battery"};
+  };
   auto abort = [](const auto& e) { return Summary{describe(e)}; };
 
   // clang-format off
@@ -109,6 +120,7 @@ inline auto make_mission() {
   return tree;
 }
 
-inline constexpr std::array goals{Pose{8, 6}, Pose{-1, 0}, Pose{4, 80}, Pose{80, 0}};
+inline constexpr std::array goals{Pose{8, 6}, Pose{-1, 0}, Pose{4, 80},
+                                  Pose{80, 0}};
 
 }  // namespace mission

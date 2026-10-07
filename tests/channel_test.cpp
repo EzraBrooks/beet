@@ -22,7 +22,8 @@ using Doubler = beet::Channel<int, Result<int, Bad>>;
 
 TEST_CASE("call waits for the server's reply, including typed errors") {
   auto call = Doubler::call();
-  static_assert(std::is_same_v<beet::input_t<decltype(call)>, beet::Call<int, Result<int, Bad>>>);
+  static_assert(std::is_same_v<beet::input_t<decltype(call)>,
+                               beet::Call<int, Result<int, Bad>>>);
   static_assert(std::is_same_v<beet::output_t<decltype(call)>, int>);
   static_assert(std::is_same_v<beet::error_t<decltype(call)>, Bad>);
 
@@ -62,22 +63,27 @@ TEST_CASE("halting a call cancels its request") {
   CHECK_FALSE(ch.try_receive());
 }
 
-TEST_CASE("a leaf can create a channel shared by a caller and a server that never finishes") {
+TEST_CASE(
+    "a leaf can create a channel shared by a caller and a server that never "
+    "finishes") {
   auto server = [](Doubler ch) -> Task<Result<never, never>> {
     for (;;) {
       if (auto req = ch.try_receive()) req->reply(req->value() * 2);
       co_await beet::running;
     }
   };
-  auto client = beet::sequence([](Doubler ch) { return beet::Call<int, Result<int, Bad>>{ch, 5}; }, Doubler::call(),
-                               [](int x) { return x + 1; });
+  auto client = beet::sequence(
+      [](Doubler ch) { return beet::Call<int, Result<int, Bad>>{ch, 5}; },
+      Doubler::call(), [](int x) { return x + 1; });
 
-  auto tree = beet::sequence([] { return Doubler{}; }, beet::parallel_any(client, server));
+  auto tree = beet::sequence([] { return Doubler{}; },
+                             beet::parallel_any(client, server));
   static_assert(std::is_same_v<beet::input_t<decltype(tree)>, beet::unit>);
 
   beet::Runner runner{tree};
   Status status = runner.tick();
-  for (int i = 0; status == Status::Running && i < 10; ++i) status = runner.tick();
+  for (int i = 0; status == Status::Running && i < 10; ++i)
+    status = runner.tick();
   REQUIRE(status == Status::Success);
   CHECK(std::get<0>(runner.result().value()) == 11);
 }

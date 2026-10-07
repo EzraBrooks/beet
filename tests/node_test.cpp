@@ -75,7 +75,8 @@ TEST_CASE("AnyNode erases a subtree's type and can widen its error set") {
   beet::AnyNode<int, std::string, Bad> exact = beet::node(named);
   CHECK(run_once(exact, 3).value() == "3");
 
-  beet::AnyNode<int, std::string, std::variant<Bad, Worse>> wider = beet::node(named);
+  beet::AnyNode<int, std::string, std::variant<Bad, Worse>> wider =
+      beet::node(named);
   auto failed = run_once(wider, -3);
   REQUIRE_FALSE(failed.has_value());
   CHECK(std::holds_alternative<Bad>(failed.error()));

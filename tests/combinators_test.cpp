@@ -51,7 +51,8 @@ auto run(const N& n, input_t<N> in) {
 TEST_CASE("sequence pipes outputs into inputs and unions the error sets") {
   auto tree = beet::sequence(non_negative, small, show);
   static_assert(std::is_same_v<output_t<decltype(tree)>, std::string>);
-  static_assert(std::is_same_v<beet::error_t<decltype(tree)>, std::variant<Negative, TooBig>>);
+  static_assert(std::is_same_v<beet::error_t<decltype(tree)>,
+                               std::variant<Negative, TooBig>>);
 
   CHECK(run(tree, 42).value() == "42");
   CHECK(std::holds_alternative<Negative>(run(tree, -1).error()));
@@ -60,12 +61,14 @@ TEST_CASE("sequence pipes outputs into inputs and unions the error sets") {
 
 TEST_CASE("nested sequences run like a flat one") {
   auto twice = [](int x) { return x * 2; };
-  auto nested = beet::sequence(beet::sequence(non_negative, small), beet::sequence(twice, show));
+  auto nested = beet::sequence(beet::sequence(non_negative, small),
+                               beet::sequence(twice, show));
   CHECK(run(nested, 21).value() == "42");
   CHECK(std::holds_alternative<Negative>(run(nested, -1).error()));
 }
 
-TEST_CASE("sequence can drop the previous output when the next node takes no input") {
+TEST_CASE(
+    "sequence can drop the previous output when the next node takes no input") {
   int calls = 0;
   auto tree = beet::sequence(non_negative, [&calls] { return ++calls; });
   CHECK(run(tree, 3).value() == 1);
@@ -83,14 +86,18 @@ TEST_CASE("sequence waits on running children") {
 }
 
 TEST_CASE("recover<E> removes only the handled error type") {
-  auto tree = beet::recover<TooBig>(beet::sequence(non_negative, small), [](TooBig t) { return t.value / 10; });
+  auto tree = beet::recover<TooBig>(beet::sequence(non_negative, small),
+                                    [](TooBig t) { return t.value / 10; });
   static_assert(std::is_same_v<beet::error_t<decltype(tree)>, Negative>);
   CHECK(run(tree, 500).value() == 50);
   CHECK_FALSE(run(tree, -1).has_value());
 }
 
-TEST_CASE("recover with no listed types handles everything and yields an infallible node") {
-  auto tree = beet::recover(beet::sequence(non_negative, small), [](const auto&) { return 0; });
+TEST_CASE(
+    "recover with no listed types handles everything and yields an infallible "
+    "node") {
+  auto tree = beet::recover(beet::sequence(non_negative, small),
+                            [](const auto&) { return 0; });
   static_assert(std::is_same_v<beet::error_t<decltype(tree)>, never>);
   CHECK(run(tree, -1).value() == 0);
   CHECK(run(tree, 500).value() == 0);
@@ -98,9 +105,10 @@ TEST_CASE("recover with no listed types handles everything and yields an infalli
 }
 
 TEST_CASE("a recover handler returning Result translates errors") {
-  auto tree = beet::recover(non_negative, [](Negative) -> Result<int, Rewritten> {
-    return beet::make_unexpected(Rewritten{"negative input"});
-  });
+  auto tree =
+      beet::recover(non_negative, [](Negative) -> Result<int, Rewritten> {
+        return beet::make_unexpected(Rewritten{"negative input"});
+      });
   static_assert(std::is_same_v<beet::error_t<decltype(tree)>, Rewritten>);
   CHECK(run(tree, -2).error().why == "negative input");
   CHECK(run(tree, 2).value() == 2);
@@ -116,10 +124,11 @@ TEST_CASE("a recover handler returning Result can also succeed implicitly") {
 }
 
 TEST_CASE("a recover handler can be a coroutine") {
-  auto tree = beet::recover(non_negative, [](Negative) -> Task<Result<int, never>> {
-    co_await beet::running;
-    co_return -1;
-  });
+  auto tree =
+      beet::recover(non_negative, [](Negative) -> Task<Result<int, never>> {
+        co_await beet::running;
+        co_return -1;
+      });
   beet::Runner r{tree, -5};
   CHECK(r.tick() == Status::Running);
   CHECK(r.tick() == Status::Success);
@@ -139,7 +148,8 @@ TEST_CASE("fallback tries the next alternative on the same input") {
 
 TEST_CASE("fallback with differing outputs yields a variant") {
   auto tree = beet::fallback(small, show);
-  static_assert(std::is_same_v<output_t<decltype(tree)>, std::variant<int, std::string>>);
+  static_assert(
+      std::is_same_v<output_t<decltype(tree)>, std::variant<int, std::string>>);
   static_assert(std::is_same_v<beet::error_t<decltype(tree)>, never>);
   CHECK(std::get<int>(run(tree, 5).value()) == 5);
   CHECK(std::get<std::string>(run(tree, 500).value()) == "500");
@@ -152,7 +162,8 @@ TEST_CASE("fallback tries every alternative in order") {
 
 TEST_CASE("finally runs on success, failure, and halt") {
   int calls = 0;
-  auto tree = beet::finally(beet::sequence(non_negative, slow_add_one), [&calls] { ++calls; });
+  auto tree = beet::finally(beet::sequence(non_negative, slow_add_one),
+                            [&calls] { ++calls; });
 
   CHECK(run(tree, 1).value() == 2);
   CHECK(calls == 1);
@@ -167,11 +178,13 @@ TEST_CASE("finally runs on success, failure, and halt") {
 
 TEST_CASE("coroutine nodes can await composed subtrees directly") {
   auto validated = beet::sequence(non_negative, small);
-  auto tree = beet::node([&validated](std::vector<int> xs) -> Task<Result<int, std::variant<Negative, TooBig>>> {
-    int total = 0;
-    for (int x : xs) total += co_await validated(x);
-    co_return total;
-  });
+  auto tree =
+      beet::node([&validated](std::vector<int> xs)
+                     -> Task<Result<int, std::variant<Negative, TooBig>>> {
+        int total = 0;
+        for (int x : xs) total += co_await validated(x);
+        co_return total;
+      });
   CHECK(run(tree, {1, 2, 3}).value() == 6);
   CHECK(std::holds_alternative<TooBig>(run(tree, {1, 200, -3}).error()));
 }

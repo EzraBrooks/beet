@@ -1,7 +1,7 @@
 #pragma once
 
-// Opt-in tracing. Nothing in this header is reachable from an untraced `Runner`, so trees run
-// without an observer contain no tracing code at all.
+// Opt-in tracing. Nothing in this header is reachable from an untraced
+// `Runner`, so trees run without an observer contain no tracing code at all.
 
 #include <array>
 #include <atomic>
@@ -19,18 +19,20 @@
 
 namespace beet {
 
-/// Receives node events by depth-first node ID (see `describe`). Must be thread-safe when the tree
-/// uses a `ThreadPoolExecutor`.
+/// Receives node events by depth-first node ID (see `describe`). Must be
+/// thread-safe when the tree uses a `ThreadPoolExecutor`.
 template <class O>
-concept observer = requires(O& o, std::uint32_t id, Status s, std::uint64_t tick) {
-  o.on_tick_begin(tick);
-  o.on_tick_end(tick, s);
-  o.on_start(id);
-  o.on_finish(id, s);
-  o.on_halt(id);
-};
+concept observer =
+    requires(O& o, std::uint32_t id, Status s, std::uint64_t tick) {
+      o.on_tick_begin(tick);
+      o.on_tick_end(tick, s);
+      o.on_start(id);
+      o.on_finish(id, s);
+      o.on_halt(id);
+    };
 
-inline constexpr std::uint32_t no_parent = std::numeric_limits<std::uint32_t>::max();
+inline constexpr std::uint32_t no_parent =
+    std::numeric_limits<std::uint32_t>::max();
 
 struct node_info {
   std::string_view kind;
@@ -49,7 +51,8 @@ constexpr std::string_view raw_type_name() {
   constexpr std::string_view fn = __PRETTY_FUNCTION__;
   constexpr std::size_t start = fn.find("T = ") + 4;
   constexpr std::size_t semi = fn.find(';', start);
-  constexpr std::size_t end = semi == std::string_view::npos ? fn.rfind(']') : semi;
+  constexpr std::size_t end =
+      semi == std::string_view::npos ? fn.rfind(']') : semi;
 #elif defined(_MSC_VER)
   constexpr std::string_view fn = __FUNCSIG__;
   constexpr std::size_t start = fn.find("raw_type_name<") + 14;
@@ -82,44 +85,54 @@ constexpr std::string_view impl_kind() {
 }
 
 template <class N, std::size_t S>
-constexpr void describe_into(std::array<node_info, S>& out, std::uint32_t id, std::uint32_t parent,
-                             std::string_view label);
+constexpr void describe_into(std::array<node_info, S>& out, std::uint32_t id,
+                             std::uint32_t parent, std::string_view label);
 
 template <class Impl, std::size_t S, class... Cs, std::size_t... I>
-constexpr void describe_children(std::array<node_info, S>& out, [[maybe_unused]] std::uint32_t id, type_list<Cs...>,
-                                 std::index_sequence<I...>) {
-  (describe_into<Cs>(out, static_cast<std::uint32_t>(id + child_offset<Impl, I>::value), id, {}), ...);
+constexpr void describe_children(std::array<node_info, S>& out,
+                                 [[maybe_unused]] std::uint32_t id,
+                                 type_list<Cs...>, std::index_sequence<I...>) {
+  (describe_into<Cs>(
+       out, static_cast<std::uint32_t>(id + child_offset<Impl, I>::value), id,
+       {}),
+   ...);
 }
 
 }  // namespace detail
 
-/// Compile-time spelling of `T`, e.g. `std::tuple<Odom, Level>`. Compiler-specific formatting.
+/// Compile-time spelling of `T`, e.g. `std::tuple<Odom, Level>`.
+/// Compiler-specific formatting.
 template <class T>
 constexpr std::string_view type_name() {
-  return {detail::type_name_holder<T>::chars.data(), detail::type_name_holder<T>::chars.size()};
+  return {detail::type_name_holder<T>::chars.data(),
+          detail::type_name_holder<T>::chars.size()};
 }
 
 namespace detail {
 
 template <class N, std::size_t S>
-constexpr void describe_into(std::array<node_info, S>& out, std::uint32_t id, std::uint32_t parent,
-                             std::string_view label) {
+constexpr void describe_into(std::array<node_info, S>& out, std::uint32_t id,
+                             std::uint32_t parent, std::string_view label) {
   using Impl = typename N::impl_type;
   if constexpr (is_transparent_v<Impl>) {
-    describe_into<typename Impl::inner_type>(out, id, parent, label.empty() ? Impl::label : label);
+    describe_into<typename Impl::inner_type>(
+        out, id, parent, label.empty() ? Impl::label : label);
   } else {
-    out[id] = {impl_kind<Impl>(), label, type_name<input_t<N>>(), type_name<output_t<N>>(), type_name<error_t<N>>(),
-               parent};
+    out[id] = {impl_kind<Impl>(),       label,
+               type_name<input_t<N>>(), type_name<output_t<N>>(),
+               type_name<error_t<N>>(), parent};
     using Children = typename impl_children<Impl>::type;
     [&]<class... Cs>(type_list<Cs...> children) {
-      describe_children<Impl>(out, id, children, std::index_sequence_for<Cs...>{});
+      describe_children<Impl>(out, id, children,
+                              std::index_sequence_for<Cs...>{});
     }(Children{});
   }
 }
 
 }  // namespace detail
 
-/// The tree's nodes in depth-first order, indexed by the IDs observers receive. The root is ID 0.
+/// The tree's nodes in depth-first order, indexed by the IDs observers receive.
+/// The root is ID 0.
 template <node_type Tree>
 constexpr auto describe() {
   std::array<node_info, detail::subtree_size_v<Tree>> out{};
@@ -149,13 +162,15 @@ Task<R> observe(Task<R> inner, Obs* observer, std::uint32_t id) {
   halt_guard<Obs> guard{observer, id};
   R result = co_await settle(std::move(inner));
   guard.finished = true;
-  observer->on_finish(id, result.has_value() ? Status::Success : Status::Failure);
+  observer->on_finish(id,
+                      result.has_value() ? Status::Success : Status::Failure);
   co_return std::move(result);
 }
 
 template <class Obs>
 struct traced {
-  static_assert(observer<Obs>, "beet: Runner observer does not satisfy beet::observer");
+  static_assert(observer<Obs>,
+                "beet: Runner observer does not satisfy beet::observer");
 
   Obs* obs;
   std::uint32_t id;
@@ -173,7 +188,13 @@ struct traced {
 
 }  // namespace detail
 
-enum class NodeStatus : std::uint8_t { Idle, Running, Success, Failure, Halted };
+enum class NodeStatus : std::uint8_t {
+  Idle,
+  Running,
+  Success,
+  Failure,
+  Halted
+};
 
 constexpr std::string_view to_string(NodeStatus s) {
   switch (s) {
@@ -186,14 +207,17 @@ constexpr std::string_view to_string(NodeStatus s) {
   return "unknown";
 }
 
-/// Latest status of every node in `Tree`, and the tick on which it last changed.
+/// Latest status of every node in `Tree`, and the tick on which it last
+/// changed.
 template <node_type Tree>
 class StatusTable {
  public:
   static constexpr auto nodes = describe<Tree>();
   static constexpr std::size_t size = nodes.size();
 
-  void on_tick_begin(std::uint64_t tick) { tick_.store(tick, std::memory_order_relaxed); }
+  void on_tick_begin(std::uint64_t tick) {
+    tick_.store(tick, std::memory_order_relaxed);
+  }
   void on_tick_end(std::uint64_t, Status) {}
   void on_start(std::uint32_t id) { set(id, NodeStatus::Running); }
   void on_finish(std::uint32_t id, Status s) {
@@ -201,13 +225,18 @@ class StatusTable {
   }
   void on_halt(std::uint32_t id) { set(id, NodeStatus::Halted); }
 
-  NodeStatus status(std::uint32_t id) const { return status_[id].load(std::memory_order_relaxed); }
-  std::uint64_t changed_at(std::uint32_t id) const { return changed_[id].load(std::memory_order_relaxed); }
+  NodeStatus status(std::uint32_t id) const {
+    return status_[id].load(std::memory_order_relaxed);
+  }
+  std::uint64_t changed_at(std::uint32_t id) const {
+    return changed_[id].load(std::memory_order_relaxed);
+  }
 
  private:
   void set(std::uint32_t id, NodeStatus s) {
     status_[id].store(s, std::memory_order_relaxed);
-    changed_[id].store(tick_.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    changed_[id].store(tick_.load(std::memory_order_relaxed),
+                       std::memory_order_relaxed);
   }
 
   std::atomic<std::uint64_t> tick_{0};

@@ -79,7 +79,8 @@ TEST_CASE("timeout_ticks fails with Timeout and adds it to the error set") {
 TEST_CASE("condition passes its input through or fails") {
   auto positive = beet::condition([](int x) { return x > 0; });
   static_assert(std::is_same_v<input_t<decltype(positive)>, int>);
-  static_assert(std::is_same_v<beet::error_t<decltype(positive)>, beet::ConditionFailed>);
+  static_assert(
+      std::is_same_v<beet::error_t<decltype(positive)>, beet::ConditionFailed>);
 
   auto tree = beet::sequence(positive, [](int x) { return x * 10; });
   beet::Runner yes{tree, 4};

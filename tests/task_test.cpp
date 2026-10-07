@@ -58,7 +58,9 @@ TEST_CASE("a coroutine node suspends on running and resumes on the next tick") {
   CHECK(r.tick() == Status::Success);
 }
 
-TEST_CASE("co_await on a failing child propagates its error without resuming the parent") {
+TEST_CASE(
+    "co_await on a failing child propagates its error without resuming the "
+    "parent") {
   beet::Runner r{beet::node(sum_children)};
   CHECK(r.tick() == Status::Running);
   CHECK(r.tick() == Status::Running);
@@ -66,7 +68,8 @@ TEST_CASE("co_await on a failing child propagates its error without resuming the
   CHECK(r.result().error().why == "late");
 }
 
-TEST_CASE("halting destroys suspended frames, and the next tick restarts the tree") {
+TEST_CASE(
+    "halting destroys suspended frames, and the next tick restarts the tree") {
   bool destroyed = false;
   beet::Runner r{beet::node(forever), &destroyed};
   CHECK(r.tick() == Status::Running);
