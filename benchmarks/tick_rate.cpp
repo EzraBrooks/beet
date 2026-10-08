@@ -32,8 +32,8 @@ Task<Result<int, beet::never>> approach(int x) {
 }
 
 auto make_tree() {
-  return beet::recover(beet::sequence(check, approach),
-                       [](TooFar f) { return f.at; });
+  return beet::recover<TooFar>(beet::sequence(check, approach),
+                               [](TooFar f) { return f.at; });
 }
 
 // Restarts the tree whenever it finishes, so frame allocation is part of the

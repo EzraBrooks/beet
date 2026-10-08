@@ -15,13 +15,13 @@ using beet::Task;
 
 struct Bad {};
 
-Result<int, Bad> check(int x) {
+Result<int, Bad> check(int x) noexcept {
   if (x < 0) return beet::make_unexpected(Bad{});
   return x;
 }
-int twice(int x) { return x * 2; }
+int twice(int x) noexcept { return x * 2; }
 
-Task<Result<int, Bad>> slow(int x) {
+Task<Result<int, Bad>> slow(int x) noexcept {
   for (int i = 0; i < x; ++i) co_await beet::running;
   co_return x;
 }
@@ -48,9 +48,9 @@ static_assert(beet::observer<Recorder>);
 // sequence(recover(sequence(check, twice)), named(slow)) has IDs:
 //   0 sequence, 1 recover, 2 sequence, 3 check, 4 twice, 5 slow
 auto make_tree() {
-  return beet::sequence(
-      beet::recover(beet::sequence(check, twice), [](Bad) { return -1; }),
-      beet::named<"wait">(slow));
+  return beet::sequence(beet::recover(beet::sequence(check, twice),
+                                      [](Bad) noexcept { return -1; }),
+                        beet::named<"wait">(slow));
 }
 using Tree = decltype(make_tree());
 

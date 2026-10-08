@@ -33,7 +33,7 @@ struct HaltProbe {
 
 /// Succeeds with `base + id` (or fails with Failed{id}) on its `ticks`-th tick.
 auto job(int id, int ticks, bool succeed = true, int* halted = nullptr) {
-  return beet::node([=](int base) -> Task<Result<int, Failed>> {
+  return beet::node([=](int base) noexcept -> Task<Result<int, Failed>> {
     HaltProbe probe{halted};
     for (int i = 1; i < ticks; ++i) co_await beet::running;
     probe.finished = true;
@@ -52,9 +52,9 @@ int ticks_to_finish(beet::Runner<N>& r) {
 }  // namespace
 
 TEST_CASE("parallel_all ticks children together and returns a tuple") {
-  auto tree =
-      beet::parallel_all(job(1, 3), job(2, 1),
-                         beet::node([](int x) { return std::to_string(x); }));
+  auto tree = beet::parallel_all(
+      job(1, 3), job(2, 1),
+      beet::node([](int x) noexcept { return std::to_string(x); }));
   static_assert(std::is_same_v<input_t<decltype(tree)>, int>);
   static_assert(std::is_same_v<output_t<decltype(tree)>,
                                std::tuple<int, int, std::string>>);
@@ -155,9 +155,22 @@ TEST_CASE("nested parallel nodes on one pool do not deadlock") {
   CHECK(std::get<2>(r.result().value()) == std::tuple{1, 1, 1});
 }
 
-TEST_CASE("exceptions in pool workers surface from tick()") {
+TEST_CASE("exceptions in pool workers become errors") {
   beet::ThreadPoolExecutor pool(2);
   auto boom = beet::node([](int) -> int { throw std::runtime_error("boom"); });
+  auto tree = beet::parallel_all(pool, job(1, 1), boom);
+  beet::Runner r{tree, 0};
+  CHECK(r.tick() == Status::Failure);
+  CHECK(std::get<beet::Exception>(r.result().error()).what() == "boom");
+}
+
+TEST_CASE(
+    "exceptions from noexcept coroutines in pool workers surface from tick()") {
+  beet::ThreadPoolExecutor pool(2);
+  auto boom = beet::node([](int) noexcept -> Task<Result<int, never>> {
+    throw std::runtime_error("boom");
+    co_return 0;
+  });
   auto tree = beet::parallel_all(pool, job(1, 1), boom);
   beet::Runner r{tree, 0};
   CHECK_THROWS_AS(r.tick(), std::runtime_error);

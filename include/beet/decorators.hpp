@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdio>
+#include <cstdlib>
 #include <functional>
 #include <stdexcept>
 #include <string_view>
@@ -83,7 +85,14 @@ struct timeout_impl {
 };
 
 inline std::size_t at_least_one(std::size_t n, const char* what) {
+#if BEET_EXCEPTIONS
   if (n == 0) throw std::invalid_argument(what);
+#else
+  if (n == 0) {
+    std::fputs(what, stderr);
+    std::abort();
+  }
+#endif
   return n;
 }
 
@@ -132,11 +141,13 @@ auto timeout_ticks(std::size_t ticks, N n) {
 template <class Pred>
 auto condition(Pred pred) {
   using T = detail::callable_input_t<Pred>;
-  return node<T>(
-      [pred = std::move(pred)](T value) -> Result<T, ConditionFailed> {
-        if (std::invoke(pred, std::as_const(value))) return value;
-        return make_unexpected(ConditionFailed{});
-      });
+  return node<T>([pred = std::move(pred)](T value) noexcept(
+                     std::is_nothrow_invocable_v<const Pred&, const T&>&&
+                         std::is_nothrow_move_constructible_v<T>)
+                     -> Result<T, ConditionFailed> {
+    if (std::invoke(pred, std::as_const(value))) return value;
+    return make_unexpected(ConditionFailed{});
+  });
 }
 
 }  // namespace beet

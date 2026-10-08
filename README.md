@@ -13,7 +13,7 @@ auto mission = beet::recover(
             beet::parallel_all(drive, watch_battery),   // Path -> tuple<Odom, Level>
             report),                                    // tuple<Odom, Level> -> Summary
         [](LowBattery) { return Summary{"docked"}; }),
-    [](const auto& e) { return Summary{describe(e)}; });
+    [](const auto& e) noexcept { return Summary{describe(e)}; });   // PlanError, Stuck, or beet::Exception
 
 static_assert(std::is_same_v<beet::error_t<decltype(mission)>, beet::never>);  // cannot fail
 
@@ -40,6 +40,8 @@ Three consequences follow from that shape.
 **Handling an error removes it from the type.** `recover<E>(node, handler)` handles `E` and drops it from the error set. Once every error is handled, the set becomes `never`, a type with no values, so `Result<Out, never>` is a compile-time proof that the tree always produces an `Out`. If a refactor adds a new failure mode, that proof stops holding and the compiler points at the gap. Nothing is silently dropped at runtime.
 
 The same rules apply inside coroutine nodes. `co_await child(x)` yields the child's value and propagates its failure upward, but only if the caller's error set covers the child's errors. Otherwise the build fails.
+
+**Exceptions are errors too.** Any leaf or handler that is not `noexcept` gets `beet::Exception` in its error set, and beet catches whatever it throws and returns it as that error. `Exception::what()` gives the message, and `recover<beet::Exception>` handles it like any other error. A `noexcept` callable opts out: plain functions that throw anyway terminate, and `noexcept` coroutines rethrow from `tick()`. When exceptions are disabled (`-fno-exceptions`, or `BEET_NO_EXCEPTIONS`), nothing gains `beet::Exception` and beet never throws.
 
 ## Behavior tree semantics
 

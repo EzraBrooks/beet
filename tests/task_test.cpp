@@ -25,7 +25,7 @@ Task<Result<int, Oops>> fail_after(int n) {
   co_return beet::make_unexpected(Oops{"late"});
 }
 
-Task<Result<int, Oops>> sum_children() {
+Task<Result<int, Oops>> sum_children() noexcept {
   int a = co_await count_ticks(2);
   int b = co_await fail_after(2);
   co_return a + b + 1000;
@@ -41,7 +41,7 @@ Task<Result<int, beet::never>> forever(bool* destroyed) {
   for (;;) co_await beet::running;
 }
 
-Task<Result<int, Oops>> throws() {
+Task<Result<int, Oops>> throws() noexcept {
   co_await beet::running;
   throw std::runtime_error("boom");
 }
@@ -83,7 +83,8 @@ TEST_CASE(
   CHECK_FALSE(destroyed);
 }
 
-TEST_CASE("exceptions thrown by a node surface from tick()") {
+TEST_CASE(
+    "exceptions thrown by a noexcept coroutine node surface from tick()") {
   beet::Runner r{beet::node(throws)};
   CHECK(r.tick() == Status::Running);
   CHECK_THROWS_AS(r.tick(), std::runtime_error);
