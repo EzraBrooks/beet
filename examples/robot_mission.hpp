@@ -51,6 +51,9 @@ inline std::string describe(const Stuck& e) {
   return "stuck at (" + std::to_string(e.where.x) + ", " +
          std::to_string(e.where.y) + ")";
 }
+inline std::string describe(const beet::Exception& e) {
+  return "unexpected exception: " + e.what();
+}
 
 inline Result<Path, PlanError> plan_path(Pose goal) {
   if (goal.x < 0)
@@ -100,7 +103,7 @@ inline auto make_mission() {
     return Summary{"returned to dock at " + std::to_string(b.percent) +
                    "% battery"};
   };
-  auto abort = [](const auto& e) { return Summary{describe(e)}; };
+  auto abort = [](const auto& e) noexcept { return Summary{describe(e)}; };
 
   // clang-format off
   auto tree = beet::recover(

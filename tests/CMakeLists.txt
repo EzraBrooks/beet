@@ -18,10 +18,16 @@ add_executable(
   parallel_test.cpp
   decorators_test.cpp
   observe_test.cpp
-  offload_test.cpp)
+  offload_test.cpp
+  exception_test.cpp)
 target_link_libraries(beet_tests PRIVATE beet::beet doctest::doctest)
 target_compile_options(beet_tests PRIVATE ${BEET_WARNINGS})
 add_test(NAME beet_tests COMMAND beet_tests)
+
+add_executable(beet_no_exceptions no_exceptions.cpp)
+target_link_libraries(beet_no_exceptions PRIVATE beet::beet)
+target_compile_options(beet_no_exceptions PRIVATE ${BEET_WARNINGS} -fno-exceptions)
+add_test(NAME beet_no_exceptions COMMAND beet_no_exceptions)
 
 # Each file must fail to compile with the given static_assert message.
 function(beet_compile_fail name pattern)

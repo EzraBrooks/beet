@@ -25,7 +25,8 @@ TEST_CASE("call waits for the server's reply, including typed errors") {
   static_assert(std::is_same_v<beet::input_t<decltype(call)>,
                                beet::Call<int, Result<int, Bad>>>);
   static_assert(std::is_same_v<beet::output_t<decltype(call)>, int>);
-  static_assert(std::is_same_v<beet::error_t<decltype(call)>, Bad>);
+  static_assert(std::is_same_v<beet::error_t<decltype(call)>,
+                               std::variant<Bad, beet::Exception>>);
 
   Doubler ch;
   CHECK_FALSE(ch.try_receive());
@@ -44,7 +45,7 @@ TEST_CASE("call waits for the server's reply, including typed errors") {
   fails.tick();
   ch.try_receive()->reply(beet::make_unexpected(Bad{3}));
   CHECK(fails.tick() == Status::Failure);
-  CHECK(fails.result().error().code == 3);
+  CHECK(std::get<Bad>(fails.result().error()).code == 3);
 }
 
 TEST_CASE("halting a call cancels its request") {

@@ -19,12 +19,12 @@ using beet::unit;
 struct Bad {};
 struct Worse {};
 
-int twice(int x) { return x * 2; }
-Result<std::string, Bad> named(int x) {
+int twice(int x) noexcept { return x * 2; }
+Result<std::string, Bad> named(int x) noexcept {
   if (x < 0) return beet::make_unexpected(Bad{});
   return std::to_string(x);
 }
-Task<Result<double, Worse>> halve(int x) { co_return x / 2.0; }
+Task<Result<double, Worse>> halve(int x) noexcept { co_return x / 2.0; }
 
 auto n_plain = beet::node(twice);
 auto n_result = beet::node(named);

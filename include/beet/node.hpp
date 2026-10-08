@@ -99,26 +99,81 @@ Result<Out, Err> to_result(R&& r) {
   }
 }
 
-template <class Out, class Err, class F, class... Args>
-Task<Result<Out, Err>> lazy_call(F f, Args... args) {
+/// Whether beet must catch exceptions from `f(args...)`.
+template <class F, class... Args>
+inline constexpr bool may_throw_v =
+    BEET_EXCEPTIONS && !std::is_nothrow_invocable_v<const F&, Args...>;
+
+/// Output and error types of `call(f, args...)`. Callables that may throw
+/// gain `Exception`.
+template <class F, class... Args>
+struct call_traits {
+  using lifted = lift_of<std::invoke_result_t<const F&, Args...>>;
+  using out = typename lifted::out;
+  using err = std::conditional_t<may_throw_v<F, Args...>,
+                                 error_union_t<typename lifted::err, Exception>,
+                                 typename lifted::err>;
+};
+
+template <class F, class... Args>
+decltype(auto) invoke_value(const F& f, Args&&... args) {
   if constexpr (std::is_void_v<std::invoke_result_t<const F&, Args&&...>>) {
-    std::invoke(std::as_const(f), std::move(args)...);
-    co_return Result<Out, Err>(Out{});
+    std::invoke(f, std::forward<Args>(args)...);
+    return unit{};
   } else {
-    co_return to_result<Out, Err>(
-        std::invoke(std::as_const(f), std::move(args)...));
+    return std::invoke(f, std::forward<Args>(args)...);
   }
+}
+
+template <class Out, class Err, bool Catch, class F, class... Args>
+Task<Result<Out, Err>> lazy_call(F f, Args... args) {
+#if BEET_EXCEPTIONS
+  if constexpr (Catch) {
+    std::exception_ptr caught;
+    try {
+      co_return to_result<Out, Err>(
+          invoke_value(std::as_const(f), std::move(args)...));
+    } catch (...) {
+      caught = std::current_exception();
+    }
+    co_return make_unexpected(coerce<Err>(Exception{caught}));
+  }
+#endif
+  co_return to_result<Out, Err>(
+      invoke_value(std::as_const(f), std::move(args)...));
+}
+
+/// Runs a coroutine callable, returning anything it throws as `Exception`.
+template <class Out, class Err, class F, class... Args>
+Task<Result<Out, Err>> catching_task(F f, Args... args) {
+#if BEET_EXCEPTIONS
+  std::exception_ptr caught;
+  try {
+    co_return to_result<Out, Err>(
+        co_await settle(std::invoke(std::as_const(f), std::move(args)...)));
+  } catch (...) {
+    caught = std::current_exception();
+  }
+  co_return make_unexpected(coerce<Err>(Exception{caught}));
+#else
+  co_return to_result<Out, Err>(
+      co_await settle(std::invoke(std::as_const(f), std::move(args)...)));
+#endif
 }
 
 /// Invokes `f` as a node body. Plain callables are deferred into a task so they
 /// run when first ticked.
 template <class F, class... Args>
 auto call(const F& f, Args&&... args) {
-  using L = lift_of<std::invoke_result_t<const F&, Args&&...>>;
-  if constexpr (L::is_task) {
+  using C = call_traits<F, Args&&...>;
+  constexpr bool catches = may_throw_v<F, Args&&...>;
+  if constexpr (C::lifted::is_task && !catches) {
     return std::invoke(f, std::forward<Args>(args)...);
+  } else if constexpr (C::lifted::is_task) {
+    return catching_task<typename C::out, typename C::err>(
+        f, std::decay_t<Args>(std::forward<Args>(args))...);
   } else {
-    return lazy_call<typename L::out, typename L::err>(
+    return lazy_call<typename C::out, typename C::err, catches>(
         f, std::decay_t<Args>(std::forward<Args>(args))...);
   }
 }

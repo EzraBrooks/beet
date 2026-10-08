@@ -75,11 +75,15 @@ class ThreadPoolExecutor final : public Executor {
 
     auto run = [&batch, &fn](std::size_t i) {
       std::exception_ptr error;
+#if BEET_EXCEPTIONS
       try {
         fn(i);
       } catch (...) {
         error = std::current_exception();
       }
+#else
+      fn(i);
+#endif
       std::lock_guard lock(batch.mutex);
       if (error && !batch.error) batch.error = error;
       if (--batch.remaining == 0) batch.finished.notify_all();
