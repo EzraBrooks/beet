@@ -237,6 +237,38 @@ struct untraced {
   }
 };
 
+/// `Trace` inside a `rate<Hz>` region. The rate rides along to every
+/// descendant, so nested regions know their enclosing rate at compile time.
+template <class Trace, unsigned Hz>
+struct rated : Trace {
+  using base = Trace;
+  static constexpr unsigned hz = Hz;
+
+  template <std::size_t Offset>
+  constexpr rated child() const noexcept {
+    return {static_cast<const Trace&>(*this).template child<Offset>()};
+  }
+};
+
+/// The rate of the region a trace belongs to, or 0 outside any `rate<Hz>`.
+template <class Trace>
+inline constexpr unsigned trace_hz_v = 0;
+template <class Trace, unsigned Hz>
+inline constexpr unsigned trace_hz_v<rated<Trace, Hz>> = Hz;
+
+template <class Trace>
+struct strip_rate {
+  using type = Trace;
+};
+template <class Trace, unsigned Hz>
+struct strip_rate<rated<Trace, Hz>> {
+  using type = Trace;
+};
+
+template <class Trace>
+inline constexpr bool is_untraced_v =
+    std::is_same_v<typename strip_rate<Trace>::type, untraced>;
+
 template <class Impl>
 inline constexpr bool is_transparent_v = requires { Impl::transparent; };
 
@@ -323,11 +355,10 @@ class Node {
     return run(std::move(in), detail::untraced{});
   }
 
-  /// Runs the node under `trace`. Only traces other than `untraced` report
-  /// events to an observer.
+  /// Runs the node under `trace`. Only traces with an observer report events.
   template <class Trace>
   Task<result_type> run(In in, Trace trace) const {
-    if constexpr (std::is_same_v<Trace, detail::untraced> ||
+    if constexpr (detail::is_untraced_v<Trace> ||
                   detail::is_transparent_v<Impl>) {
       return run_impl(std::move(in), trace);
     } else {

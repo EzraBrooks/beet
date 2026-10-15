@@ -147,11 +147,12 @@ TEST_CASE("retry reports each attempt on the same ID") {
   auto tree = beet::retry(3, check);
   Recorder rec;
   beet::Runner r{tree, -1, rec};
-  r.tick();
-  CHECK(rec.events ==
-        std::vector<std::string>{"tick:0", "start:0", "start:1",
-                                 "finish:1:fail", "start:1", "finish:1:fail",
-                                 "start:1", "finish:1:fail", "finish:0:fail"});
+  while (r.tick() == Status::Running) {
+  }
+  CHECK(rec.events == std::vector<std::string>{
+                          "tick:0", "start:0", "start:1", "finish:1:fail",
+                          "tick:1", "start:1", "finish:1:fail", "tick:2",
+                          "start:1", "finish:1:fail", "finish:0:fail"});
 }
 
 TEST_CASE("StatusTable tracks the latest status of each node") {

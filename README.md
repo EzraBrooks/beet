@@ -53,8 +53,22 @@ The same rules apply inside coroutine nodes. `co_await child(x)` yields the chil
 | Running | `co_await beet::running;` suspends a node until the next tick |
 | Halt | Destroying a suspended node; cleanup lives in destructors or `finally(node, f)` |
 | Decorators | `recover`, `retry`, `repeat`, `timeout_ticks`, `condition` |
+| Rates | `rate<Hz>(node)` ticks a region at `Hz` |
+
+`retry` and `repeat` wait for the next tick before each new attempt, so a node never reruns within the tick it finished in. `repeat(node)` with no count runs until the node fails.
 
 Trees are written top-down: every composite and decorator is a function that takes its children, so the code nests exactly as the tree does, with the root as the outermost call.
+
+### Rates
+
+```cpp
+auto tree = beet::rate<600>(beet::parallel_any(  // the main loop calls tick() at 600 Hz
+    controller,                                  // runs every tick
+    beet::rate<1>(beet::repeat(expensive_check))));  // runs once a second
+static_assert(beet::Runner<decltype(tree)>::tick_hz == 600);
+```
+
+Rates are counted in ticks, not measured with a clock, so they are deterministic and cost nothing at runtime. The outermost `rate<Hz>` declares how often `tick()` is called, and `Runner<Tree>::tick_hz` reports it so the main loop can sleep for `1.0 / tick_hz`. Beet does not check that the loop actually keeps that pace. A nested `rate<Hz>` ticks its subtree every `P / Hz` ticks of its enclosing `rate<P>` region. It fails to compile unless `Hz` evenly divides `P`, and so does a tree whose outermost rates disagree. Everything inside a region counts that region's ticks, including `timeout_ticks`. Hiding a subtree behind `AnyNode` drops the enclosing rate, so a `rate<Hz>` inside one is treated as outermost.
 
 Leaves can be plain functions (`Out(In)` or `Result<Out, E>(In)`) or coroutines (`Task<Result<Out, E>>(In)`). Use `AnyNode<In, Out, Err>` to hide a subtree's concrete type behind a stable interface.
 

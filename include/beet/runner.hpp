@@ -25,6 +25,36 @@ struct observer_slot {
 };
 template <>
 struct observer_slot<void> {};
+
+struct rate_scan {
+  unsigned hz = 0;
+  bool conflict = false;
+
+  friend constexpr rate_scan operator+(rate_scan a, rate_scan b) {
+    if (a.hz == 0) return b;
+    if (b.hz == 0) return a;
+    return {a.hz, a.conflict || b.conflict || a.hz != b.hz};
+  }
+};
+
+/// The rate of the outermost `rate<Hz>` regions in a subtree, and whether
+/// they disagree.
+template <class N>
+struct outer_rate;
+template <class Impl, class In, class Out, class Err>
+struct outer_rate<Node<Impl, In, Out, Err>> {
+  static constexpr rate_scan value = [] {
+    if constexpr (requires { Impl::hz; }) {
+      return rate_scan{Impl::hz};
+    } else if constexpr (is_transparent_v<Impl>) {
+      return outer_rate<typename Impl::inner_type>::value;
+    } else {
+      return []<class... Cs>(type_list<Cs...>) {
+        return (rate_scan{} + ... + outer_rate<Cs>::value);
+      }(typename impl_children<Impl>::type{});
+    }
+  }();
+};
 }  // namespace detail
 
 /// Owns a tree and its input, and drives it one tick at a time.
@@ -33,9 +63,17 @@ struct observer_slot<void> {};
 /// observer, see beet/observe.hpp) reports node events to `Obs`.
 template <node_type N, class Obs = void>
 class Runner {
+  static_assert(!detail::outer_rate<N>::value.conflict,
+                "beet: the outermost rate<Hz> regions disagree on the tick "
+                "rate");
+
  public:
   using input_type = input_t<N>;
   using result_type = result_t<N>;
+
+  /// How often `tick()` must be called, from the outermost `rate<Hz>`; 0 if
+  /// the tree declares no rate.
+  static constexpr unsigned tick_hz = detail::outer_rate<N>::value.hz;
 
   Runner(N tree, input_type input)
     requires std::is_void_v<Obs>

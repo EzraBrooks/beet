@@ -19,7 +19,8 @@ add_executable(
   decorators_test.cpp
   observe_test.cpp
   offload_test.cpp
-  exception_test.cpp)
+  exception_test.cpp
+  rate_test.cpp)
 target_link_libraries(beet_tests PRIVATE beet::beet doctest::doctest)
 target_compile_options(beet_tests PRIVATE ${BEET_WARNINGS})
 add_test(NAME beet_tests COMMAND beet_tests)
@@ -41,6 +42,9 @@ beet_compile_fail(cf_sequence_type_mismatch "sequence\\(\\) child cannot accept 
 beet_compile_fail(cf_recover_unknown_error "recover<E>\\(\\) names an error type this node cannot produce")
 beet_compile_fail(cf_await_uncovered_error "errors are not covered by this coroutine's error set")
 beet_compile_fail(cf_parallel_input_mismatch "parallel children must share one input type")
+beet_compile_fail(cf_rate_not_divisor "rate<Hz> must evenly divide its enclosing rate")
+beet_compile_fail(cf_rate_faster_than_parent "rate<Hz> is faster than its enclosing rate")
+beet_compile_fail(cf_rate_disagree "outermost rate<Hz> regions disagree on the tick")
 
 # Tracing must leave no symbols in binaries that never attach an observer. The traced test binary
 # is the positive control that proves the pattern matches when tracing is used.

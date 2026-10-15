@@ -11,6 +11,7 @@
 //   ./roboplan_ur5 --save ur5.rrd --goals 2 --seed 3             # writes a
 //   recording instead
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -46,7 +47,7 @@ constexpr std::string_view tool = "tool0";
 
 struct Config {
   unsigned seed = 0;
-  double dt = 0.01;
+  double dt = 0;  // the control period, from the tree's tick rate
   std::shared_ptr<const rerun::RecordingStream> rec;
 };
 
@@ -353,6 +354,19 @@ Task<Result<beet::never, beet::never>> controller(Cell cell) {
   }
 }
 
+// Logs how close the arm is to its nearest joint limit.
+void check_joint_limits(Cell cell) {
+  const auto& scene = *cell.planner->scene;
+  const auto& model = scene.getModel();
+  const Eigen::VectorXi arm =
+      scene.getJointGroupInfo(std::string(group))->q_indices;
+  const Eigen::VectorXd q = cell.robot->arm();
+  const double margin =
+      std::min((q - model.lowerPositionLimit(arm)).minCoeff(),
+               (model.upperPositionLimit(arm) - q).minCoeff());
+  cell.config.rec->log("limits/margin", rerun::Scalars(margin));
+}
+
 // Recover handlers only see the error, so the stream they log to is captured
 // when the tree is built.
 auto make_tree(std::size_t goals,
@@ -363,7 +377,7 @@ auto make_tree(std::size_t goals,
     return ExecutionReport{};
   };
 
-  return beet::sequence(
+  return beet::rate<100>(beet::sequence(
       beet::named<"open cell">(open_cell),
       beet::parallel_any(
           beet::named<"missions">(beet::repeat(
@@ -375,7 +389,9 @@ auto make_tree(std::size_t goals,
                                  beet::named<"toppra">(parameterize),
                                  beet::named<"execute">(Trajectories::call())),
                   skip_goal))),
-          beet::named<"controller">(controller)));
+          beet::named<"controller">(controller),
+          beet::named<"limits">(
+              beet::rate<1>(beet::repeat(check_joint_limits))))));
 }
 
 }  // namespace
@@ -402,6 +418,7 @@ int main(int argc, char** argv) {
 
   const auto tree = make_tree(goals, rec);
   using Tree = std::remove_cvref_t<decltype(tree)>;
+  config.dt = 1.0 / beet::Runner<Tree>::tick_hz;
   const rerun_tree::GraphLogger<Tree> graph(*rec, "tree");
   beet::StatusTable<Tree> table;
   beet::Runner runner{tree, config, table};

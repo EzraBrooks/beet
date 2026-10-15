@@ -36,11 +36,12 @@ class GraphLogger {
     for (std::uint32_t i = 0; i < nodes.size(); ++i) {
       const auto& n = nodes[i];
       ids_.emplace_back("n" + std::to_string(i));
-      const std::string_view name = n.label.empty() ? n.kind : n.label;
+      const std::string name =
+          std::string(n.label.empty() ? n.kind : n.label) +
+          (n.hz ? " @ " + std::to_string(n.hz) + " Hz" : "");
       const std::string input = shorten(n.input);
       const std::string output = shorten(n.output);
-      labels_.emplace_back(std::string(name) + "\nin: " + input +
-                           "\nout: " + output);
+      labels_.emplace_back(name + "\nin: " + input + "\nout: " + output);
       own[i] =
           char_width * static_cast<float>(std::max(
                            {name.size(), input.size() + 4, output.size() + 5}));

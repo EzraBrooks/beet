@@ -22,7 +22,8 @@ Task<Result<int, never>> takes_ticks(int n) noexcept {
 
 }  // namespace
 
-TEST_CASE("retry re-runs a failing node up to the attempt limit") {
+TEST_CASE(
+    "retry reruns a failing node on later ticks, up to the attempt limit") {
   int calls = 0;
   auto flaky = beet::node([&calls](int succeed_on) -> Result<int, Flaky> {
     if (++calls < succeed_on) return beet::make_unexpected(Flaky{});
@@ -30,19 +31,22 @@ TEST_CASE("retry re-runs a failing node up to the attempt limit") {
   });
 
   beet::Runner ok{beet::retry(3, flaky), 3};
-  ok.tick();
+  CHECK(ok.tick() == Status::Running);
+  CHECK(calls == 1);
+  CHECK(ok.tick() == Status::Running);
+  CHECK(ok.tick() == Status::Success);
   CHECK(ok.result().value() == 3);
 
   calls = 0;
   beet::Runner fails{beet::retry(2, flaky), 3};
-  fails.tick();
-  CHECK_FALSE(fails.result().has_value());
+  CHECK(fails.tick() == Status::Running);
+  CHECK(fails.tick() == Status::Failure);
   CHECK(calls == 2);
 
   CHECK_THROWS_AS(beet::retry(0, flaky), std::invalid_argument);
 }
 
-TEST_CASE("repeat runs a node several times and stops at the first failure") {
+TEST_CASE("repeat runs a node once per tick and stops at the first failure") {
   int calls = 0;
   auto counter = beet::node([&calls](int limit) -> Result<int, Flaky> {
     if (++calls > limit) return beet::make_unexpected(Flaky{});
@@ -50,13 +54,17 @@ TEST_CASE("repeat runs a node several times and stops at the first failure") {
   });
 
   beet::Runner ok{beet::repeat(3, counter), 10};
-  ok.tick();
+  CHECK(ok.tick() == Status::Running);
+  CHECK(calls == 1);
+  CHECK(ok.tick() == Status::Running);
+  CHECK(ok.tick() == Status::Success);
   CHECK(ok.result().value() == 3);
 
   calls = 0;
   beet::Runner fails{beet::repeat(5, counter), 2};
-  fails.tick();
-  CHECK_FALSE(fails.result().has_value());
+  CHECK(fails.tick() == Status::Running);
+  CHECK(fails.tick() == Status::Running);
+  CHECK(fails.tick() == Status::Failure);
   CHECK(calls == 3);
 }
 

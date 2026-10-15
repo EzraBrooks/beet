@@ -41,6 +41,7 @@ struct node_info {
   std::string_view output;
   std::string_view error;
   std::uint32_t parent = no_parent;
+  unsigned hz = 0;  // the rate a `rate<Hz>` node declares; 0 for other nodes
 };
 
 namespace detail {
@@ -118,9 +119,15 @@ constexpr void describe_into(std::array<node_info, S>& out, std::uint32_t id,
     describe_into<typename Impl::inner_type>(
         out, id, parent, label.empty() ? Impl::label : label);
   } else {
-    out[id] = {impl_kind<Impl>(),       label,
-               type_name<input_t<N>>(), type_name<output_t<N>>(),
-               type_name<error_t<N>>(), parent};
+    unsigned hz = 0;
+    if constexpr (requires { Impl::hz; }) hz = Impl::hz;
+    out[id] = {impl_kind<Impl>(),
+               label,
+               type_name<input_t<N>>(),
+               type_name<output_t<N>>(),
+               type_name<error_t<N>>(),
+               parent,
+               hz};
     using Children = typename impl_children<Impl>::type;
     [&]<class... Cs>(type_list<Cs...> children) {
       describe_children<Impl>(out, id, children,
