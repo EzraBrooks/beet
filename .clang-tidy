@@ -2,6 +2,8 @@
 # state that the parent task establishes before resuming a child.
 # convert-member-functions-to-static would make awaiter members and members whose body differs across
 # #if branches static, which breaks the coroutine protocol or the other branch.
+# use-trailing-return-type is broken on LLVM 21: it reports "missing '(' after '__has_feature'" in
+# libc++ headers (https://github.com/llvm/llvm-project/issues/168360, fixed in LLVM 22).
 Checks: >
   -*,
   bugprone-*,
@@ -14,13 +16,7 @@ Checks: >
   -bugprone-unchecked-optional-access,
   -clang-analyzer-core.uninitialized.Branch,
   -clang-analyzer-deadcode.DeadStores,
-  -modernize-avoid-c-arrays,
-  -modernize-use-designated-initializers,
-  -modernize-use-nodiscard,
-  -modernize-use-scoped-lock,
   -modernize-use-trailing-return-type,
-  -performance-enum-size,
-  -performance-unnecessary-value-param,
   -readability-convert-member-functions-to-static,
 CheckOptions:
   readability-identifier-length.IgnoredVariableNames: '^(in|id|ok|fn|ch|at|no|ex)$'

@@ -77,6 +77,7 @@ TEST_CASE("offload keeps ticking while the job is still working") {
 
 TEST_CASE("halting an offloaded job requests a stop") {
   auto stopped = std::make_shared<std::atomic<bool>>(false);
+  // NOLINTNEXTLINE(performance-unnecessary-value-param)
   beet::Runner runner{beet::offload([stopped](int, std::stop_token stop) {
                         while (!stop.stop_requested()) {
                           std::this_thread::yield();

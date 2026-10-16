@@ -3,6 +3,7 @@
 #include <cassert>
 #include <concepts>
 #include <coroutine>
+#include <cstdint>
 #include <exception>
 #include <optional>
 #include <utility>
@@ -12,7 +13,7 @@
 
 namespace beet {
 
-enum class Status { Idle, Running, Success, Failure };
+enum class Status : std::uint8_t { Idle, Running, Success, Failure };
 
 /// Per-runner state shared by every coroutine frame in one running tree.
 struct TickContext {
@@ -69,7 +70,7 @@ struct promise_base {
 };
 
 struct final_awaiter {
-  bool await_ready() const noexcept { return false; }
+  [[nodiscard]] bool await_ready() const noexcept { return false; }
   template <class P>
   std::coroutine_handle<> await_suspend(
       std::coroutine_handle<P> handle) noexcept {
@@ -81,7 +82,7 @@ struct final_awaiter {
 struct running_awaiter {
   promise_base* self;
 
-  bool await_ready() const noexcept { return false; }
+  [[nodiscard]] bool await_ready() const noexcept { return false; }
   void await_suspend(std::coroutine_handle<> caller) const noexcept {
     assert(self->ctx && "beet::running awaited outside of a Runner");
     self->ctx->leaf = caller;
@@ -94,7 +95,7 @@ struct raw_awaiter {
   Task<U> task;
   promise_base* parent;
 
-  bool await_ready() const noexcept { return false; }
+  [[nodiscard]] bool await_ready() const noexcept { return false; }
   std::coroutine_handle<> await_suspend(
       std::coroutine_handle<> caller) noexcept {
     auto& child = task.handle().promise();
@@ -133,7 +134,7 @@ struct try_awaiter {
     return outer.on_final();
   }
 
-  bool await_ready() const noexcept { return false; }
+  [[nodiscard]] bool await_ready() const noexcept { return false; }
   std::coroutine_handle<> await_suspend(
       std::coroutine_handle<> caller) noexcept {
     auto& child = task.handle().promise();
@@ -157,8 +158,10 @@ struct promise final : promise_base {
   std::optional<T> value;
 
   Task<T> get_return_object() noexcept;
-  std::suspend_always initial_suspend() const noexcept { return {}; }
-  final_awaiter final_suspend() const noexcept { return {}; }
+  [[nodiscard]] std::suspend_always initial_suspend() const noexcept {
+    return {};
+  }
+  [[nodiscard]] final_awaiter final_suspend() const noexcept { return {}; }
 
   template <class V = T>
     requires std::constructible_from<T, V&&>
@@ -184,7 +187,9 @@ struct promise final : promise_base {
     }
   }
 
-  bool done() const noexcept { return value.has_value() || exception; }
+  [[nodiscard]] bool done() const noexcept {
+    return value.has_value() || exception;
+  }
 };
 
 }  // namespace detail
@@ -215,7 +220,7 @@ class [[nodiscard]] Task {
     }
   }
 
-  std::coroutine_handle<promise_type> handle() const noexcept {
+  [[nodiscard]] std::coroutine_handle<promise_type> handle() const noexcept {
     return handle_;
   }
 
@@ -265,7 +270,7 @@ class TaskRunner final : public runner_base {
     return status();
   }
 
-  Status status() const {
+  [[nodiscard]] Status status() const {
     const auto& state = task_.handle().promise();
     if (!state.value) {
       return started_ ? Status::Running : Status::Idle;
@@ -277,9 +282,11 @@ class TaskRunner final : public runner_base {
     }
   }
 
-  bool done() const { return task_.handle().promise().done(); }
+  [[nodiscard]] bool done() const { return task_.handle().promise().done(); }
   T& result() { return *task_.handle().promise().value; }
-  const T& result() const { return *task_.handle().promise().value; }
+  [[nodiscard]] const T& result() const {
+    return *task_.handle().promise().value;
+  }
 
  private:
   Task<T> task_;

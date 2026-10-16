@@ -35,7 +35,7 @@ struct Recorder {
   std::vector<std::string> events;
 
   void push(std::string event) {
-    std::lock_guard lock(mutex);
+    std::scoped_lock lock(mutex);
     events.push_back(std::move(event));
   }
   void on_tick_begin(std::uint64_t tick) {

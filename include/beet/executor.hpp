@@ -57,7 +57,7 @@ class ThreadPoolExecutor final : public Executor {
 
   ~ThreadPoolExecutor() override {
     {
-      std::lock_guard lock(mutex_);
+      std::scoped_lock lock(mutex_);
       stopping_ = true;
     }
     wake_.notify_all();
@@ -91,7 +91,7 @@ class ThreadPoolExecutor final : public Executor {
 #else
       fn(index);
 #endif
-      std::lock_guard lock(batch.mutex);
+      std::scoped_lock lock(batch.mutex);
       if (error && !batch.error) {
         batch.error = error;
       }
@@ -101,7 +101,7 @@ class ThreadPoolExecutor final : public Executor {
     };
 
     {
-      std::lock_guard lock(mutex_);
+      std::scoped_lock lock(mutex_);
       for (std::size_t i = 1; i < count; ++i) {
         jobs_.emplace_back([run, i] { run(i); });
       }
@@ -111,7 +111,7 @@ class ThreadPoolExecutor final : public Executor {
 
     for (;;) {
       {
-        std::lock_guard lock(batch.mutex);
+        std::scoped_lock lock(batch.mutex);
         if (batch.remaining == 0) {
           break;
         }
@@ -132,7 +132,7 @@ class ThreadPoolExecutor final : public Executor {
 
  private:
   std::function<void()> try_pop() {
-    std::lock_guard lock(mutex_);
+    std::scoped_lock lock(mutex_);
     if (jobs_.empty()) {
       return {};
     }

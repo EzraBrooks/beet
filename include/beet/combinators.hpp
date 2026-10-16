@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <optional>
 #include <string_view>
@@ -177,14 +178,17 @@ struct finally_impl {
 
 template <std::size_t N>
 struct fixed_string {
-  char chars[N]{};
+  std::array<char, N> chars{};
 
+  // NOLINTNEXTLINE(modernize-avoid-c-arrays)
   constexpr fixed_string(const char (&str)[N]) {
     for (std::size_t i = 0; i < N; ++i) {
       chars[i] = str[i];
     }
   }
-  constexpr std::string_view view() const { return {chars, N - 1}; }
+  [[nodiscard]] constexpr std::string_view view() const {
+    return {chars.data(), N - 1};
+  }
 };
 
 /// Attaches a label to a node. Transparent: it adds no node, no ID, and no

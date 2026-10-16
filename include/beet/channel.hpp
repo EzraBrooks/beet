@@ -47,16 +47,16 @@ class Channel {
   /// called or it is halted.
   class Request {
    public:
-    const Req& value() const { return ex_->value; }
+    [[nodiscard]] const Req& value() const { return ex_->value; }
 
     /// True once the caller has been halted; the reply would be dropped.
-    bool cancelled() const {
-      std::lock_guard lock(ex_->mutex);
+    [[nodiscard]] bool cancelled() const {
+      std::scoped_lock lock(ex_->mutex);
       return ex_->cancelled;
     }
 
     void reply(Reply value) {
-      std::lock_guard lock(ex_->mutex);
+      std::scoped_lock lock(ex_->mutex);
       ex_->reply.emplace(std::move(value));
     }
 
@@ -70,11 +70,11 @@ class Channel {
 
   /// Takes the oldest request whose caller is still waiting, if any.
   std::optional<Request> try_receive() {
-    std::lock_guard lock(state_->mutex);
+    std::scoped_lock lock(state_->mutex);
     while (!state_->queue.empty()) {
       auto ex = std::move(state_->queue.front());
       state_->queue.pop_front();
-      std::lock_guard ex_lock(ex->mutex);
+      std::scoped_lock ex_lock(ex->mutex);
       if (!ex->cancelled) {
         return Request(std::move(ex));
       }
@@ -92,21 +92,21 @@ class Channel {
         [](Call<Req, Reply> input) -> Task<Result<Out, Err>> {
           auto ex = std::make_shared<exchange>(std::move(input.request));
           {
-            std::lock_guard lock(input.channel.state_->mutex);
+            std::scoped_lock lock(input.channel.state_->mutex);
             input.channel.state_->queue.push_back(ex);
           }
 
           struct cancel_on_exit {
             exchange& ex;
             ~cancel_on_exit() {
-              std::lock_guard lock(ex.mutex);
+              std::scoped_lock lock(ex.mutex);
               ex.cancelled = true;
             }
           } guard{*ex};
 
           for (;;) {
             {
-              std::lock_guard lock(ex->mutex);
+              std::scoped_lock lock(ex->mutex);
               if (ex->reply) {
                 co_return detail::to_result<Out, Err>(std::move(*ex->reply));
               }

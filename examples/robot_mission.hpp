@@ -135,7 +135,7 @@ inline auto make_mission() {
   return tree;
 }
 
-inline constexpr std::array goals{Pose{8, 6}, Pose{-1, 0}, Pose{4, 80},
-                                  Pose{80, 0}};
+inline constexpr std::array goals{Pose{.x = 8, .y = 6}, Pose{.x = -1, .y = 0},
+                                  Pose{.x = 4, .y = 80}, Pose{.x = 80, .y = 0}};
 
 }  // namespace mission

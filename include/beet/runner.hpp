@@ -74,7 +74,9 @@ class Runner {
     }
   }
 
-  Status status() const { return run_ ? run_->status() : Status::Idle; }
+  [[nodiscard]] Status status() const {
+    return run_ ? run_->status() : Status::Idle;
+  }
 
   /// Halts every running node. The next `tick()` starts the tree again from
   /// scratch.
@@ -85,7 +87,7 @@ class Runner {
     input_ = std::move(input);
   }
 
-  const result_type& result() const {
+  [[nodiscard]] const result_type& result() const {
     if (!run_ || !run_->done()) {
 #if BEET_EXCEPTIONS
       throw std::logic_error(
