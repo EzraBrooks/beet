@@ -43,7 +43,7 @@ libroboplan-example-models = ">=0.7"
 roboplan-configure = "cmake --preset roboplan"
 roboplan-build = { cmd = "cmake --build --preset roboplan", depends-on = ["roboplan-configure"] }
 roboplan-example = { cmd = "./build-roboplan/examples/roboplan_ur5", depends-on = ["roboplan-build"] }
-roboplan-record = { cmd = "./build-roboplan/examples/roboplan_ur5 --save build-roboplan/ur5.rrd --goals 2", depends-on = ["roboplan-build"] }
+roboplan-record = { cmd = "./build-roboplan/examples/roboplan_ur5 --save build-roboplan/ur5.rrd", depends-on = ["roboplan-build"] }
 
 [feature.lint.dependencies]
 # clang-tidy needs the builtin headers shipped with the matching clang release.

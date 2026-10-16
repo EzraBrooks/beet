@@ -150,7 +150,7 @@ TEST_CASE("parallel_any halts the losing children") {
 }
 
 TEST_CASE("retry reports each attempt on the same ID") {
-  auto tree = beet::retry(3, check);
+  auto tree = beet::retry<3>(check);
   Recorder rec;
   beet::Runner runner{tree, -1, rec};
   runner.tick();

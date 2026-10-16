@@ -8,7 +8,7 @@
 //
 //   pixi run -e roboplan roboplan-example                        # spawns the
 //   viewer
-//   ./roboplan_ur5 --save ur5.rrd --goals 2 --seed 3             # writes a
+//   ./roboplan_ur5 --save ur5.rrd --seed 3                       # writes a
 //   recording instead
 
 #include <chrono>
@@ -355,8 +355,7 @@ Task<Result<beet::never, beet::never>> controller(Cell cell) {
 
 // Recover handlers only see the error, so the stream they log to is captured
 // when the tree is built.
-auto make_tree(std::size_t goals,
-               std::shared_ptr<const rerun::RecordingStream> rec) {
+auto make_tree(std::shared_ptr<const rerun::RecordingStream> rec) {
   auto skip_goal = [rec](const auto& e) {
     rec->log("log", rerun::TextLog("skipping goal: " + describe(e))
                         .with_level(rerun::TextLogLevel::Warning));
@@ -366,8 +365,7 @@ auto make_tree(std::size_t goals,
   return beet::sequence(
       beet::named<"open cell">(open_cell),
       beet::parallel_any(
-          beet::named<"missions">(beet::repeat(
-              goals,
+          beet::named<"missions">(beet::repeat<3>(
               beet::recover<PlanningFailed, ParameterizationFailed,
                             StartMismatch>(
                   beet::sequence(beet::named<"choose goal">(choose_goal),
@@ -382,12 +380,10 @@ auto make_tree(std::size_t goals,
 
 int main(int argc, char** argv) {
   std::optional<std::string> save;
-  std::size_t goals = 3;
   Config config;
   for (int i = 1; i + 1 < argc; i += 2) {
     const std::string_view flag = argv[i];
     if (flag == "--save") save = argv[i + 1];
-    if (flag == "--goals") goals = std::stoul(argv[i + 1]);
     if (flag == "--seed")
       config.seed = static_cast<unsigned>(std::stoul(argv[i + 1]));
   }
@@ -400,7 +396,7 @@ int main(int argc, char** argv) {
   }
   config.rec = rec;
 
-  const auto tree = make_tree(goals, rec);
+  const auto tree = make_tree(rec);
   using Tree = std::remove_cvref_t<decltype(tree)>;
   const rerun_tree::GraphLogger<Tree> graph(*rec, "tree");
   beet::StatusTable<Tree> table;

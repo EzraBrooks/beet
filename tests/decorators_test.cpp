@@ -1,6 +1,5 @@
 #include <doctest/doctest.h>
 
-#include <stdexcept>
 #include <variant>
 
 #include "beet/beet.hpp"
@@ -33,17 +32,15 @@ TEST_CASE("retry re-runs a failing node up to the attempt limit") {
     return calls;
   });
 
-  beet::Runner ok{beet::retry(3, flaky), 3};
+  beet::Runner ok{beet::retry<3>(flaky), 3};
   ok.tick();
   CHECK(ok.result().value() == 3);
 
   calls = 0;
-  beet::Runner fails{beet::retry(2, flaky), 3};
+  beet::Runner fails{beet::retry<2>(flaky), 3};
   fails.tick();
   CHECK_FALSE(fails.result().has_value());
   CHECK(calls == 2);
-
-  CHECK_THROWS_AS(beet::retry(0, flaky), std::invalid_argument);
 }
 
 TEST_CASE("repeat runs a node several times and stops at the first failure") {
@@ -55,19 +52,19 @@ TEST_CASE("repeat runs a node several times and stops at the first failure") {
     return calls;
   });
 
-  beet::Runner ok{beet::repeat(3, counter), 10};
+  beet::Runner ok{beet::repeat<3>(counter), 10};
   ok.tick();
   CHECK(ok.result().value() == 3);
 
   calls = 0;
-  beet::Runner fails{beet::repeat(5, counter), 2};
+  beet::Runner fails{beet::repeat<5>(counter), 2};
   fails.tick();
   CHECK_FALSE(fails.result().has_value());
   CHECK(calls == 3);
 }
 
 TEST_CASE("timeout_ticks fails with Timeout and adds it to the error set") {
-  auto tree = beet::timeout_ticks(3, takes_ticks);
+  auto tree = beet::timeout_ticks<3>(takes_ticks);
   static_assert(std::is_same_v<beet::error_t<decltype(tree)>, beet::Timeout>);
 
   beet::Runner fast{tree, 3};

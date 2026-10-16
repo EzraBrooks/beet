@@ -1,10 +1,7 @@
 #pragma once
 
 #include <cstddef>
-#include <cstdio>
-#include <cstdlib>
 #include <functional>
-#include <stdexcept>
 #include <string_view>
 #include <utility>
 
@@ -27,53 +24,50 @@ struct ConditionFailed {
 
 namespace detail {
 
-template <class N>
+template <class N, std::size_t Attempts>
 struct retry_impl {
   static constexpr std::string_view kind = "retry";
   using children = type_list<N>;
 
   N inner;
-  std::size_t attempts;
 
   template <class Trace>
   Task<result_t<N>> run(input_t<N> in, Trace trace) const {
     for (std::size_t i = 1;; ++i) {
       auto result =
           co_await settle(inner.run(in, child_trace<retry_impl, 0>(trace)));
-      if (result || i >= attempts) {
+      if (result || i >= Attempts) {
         co_return std::move(result);
       }
     }
   }
 };
 
-template <class N>
+template <class N, std::size_t Times>
 struct repeat_impl {
   static constexpr std::string_view kind = "repeat";
   using children = type_list<N>;
 
   N inner;
-  std::size_t times;
 
   template <class Trace>
   Task<result_t<N>> run(input_t<N> in, Trace trace) const {
     for (std::size_t i = 1;; ++i) {
       auto value = co_await inner.run(in, child_trace<repeat_impl, 0>(trace));
-      if (i >= times) {
+      if (i >= Times) {
         co_return std::move(value);
       }
     }
   }
 };
 
-template <class N>
+template <class N, std::size_t Ticks>
 struct timeout_impl {
   static constexpr std::string_view kind = "timeout_ticks";
   using children = type_list<N>;
   using Err = error_union_t<error_t<N>, Timeout>;
 
   N inner;
-  std::size_t ticks;
 
   template <class Trace>
   Task<Result<output_t<N>, Err>> run(input_t<N> in, Trace trace) const {
@@ -83,66 +77,47 @@ struct timeout_impl {
       if (child.tick() != Status::Running) {
         co_return to_result<output_t<N>, Err>(std::move(child.result()));
       }
-      if (tick >= ticks) {
-        co_return make_unexpected(coerce<Err>(Timeout{ticks}));
+      if (tick >= Ticks) {
+        co_return make_unexpected(coerce<Err>(Timeout{Ticks}));
       }
       co_await running;
     }
   }
 };
 
-inline std::size_t at_least_one(std::size_t count, const char* what) {
-#if BEET_EXCEPTIONS
-  if (count == 0) {
-    throw std::invalid_argument(what);
-  }
-#else
-  if (count == 0) {
-    std::fputs(what, stderr);
-    std::abort();
-  }
-#endif
-  return count;
-}
-
 }  // namespace detail
 
-/// Re-runs `child` on the same input until it succeeds, up to `attempts` times.
+/// Re-runs `child` on the same input until it succeeds, up to `Attempts` times.
 /// Fails with the last error.
-template <class N>
-auto retry(std::size_t attempts, N child) {
+template <std::size_t Attempts, class N>
+auto retry(N child) {
+  static_assert(Attempts >= 1, "beet: retry<Attempts>() needs Attempts >= 1");
   auto inner = node(std::move(child));
-  using I = detail::retry_impl<decltype(inner)>;
+  using I = detail::retry_impl<decltype(inner), Attempts>;
   return Node<I, input_t<decltype(inner)>, output_t<decltype(inner)>,
-              error_t<decltype(inner)>>(
-      I{std::move(inner),
-        detail::at_least_one(attempts,
-                             "beet::retry: attempts must be at least 1")});
+              error_t<decltype(inner)>>(I{std::move(inner)});
 }
 
-/// Runs `child` on the same input `times` times in a row, stopping at the first
+/// Runs `child` on the same input `Times` times in a row, stopping at the first
 /// failure. Yields the last output.
-template <class N>
-auto repeat(std::size_t times, N child) {
+template <std::size_t Times, class N>
+auto repeat(N child) {
+  static_assert(Times >= 1, "beet: repeat<Times>() needs Times >= 1");
   auto inner = node(std::move(child));
-  using I = detail::repeat_impl<decltype(inner)>;
+  using I = detail::repeat_impl<decltype(inner), Times>;
   return Node<I, input_t<decltype(inner)>, output_t<decltype(inner)>,
-              error_t<decltype(inner)>>(
-      I{std::move(inner),
-        detail::at_least_one(times, "beet::repeat: times must be at least 1")});
+              error_t<decltype(inner)>>(I{std::move(inner)});
 }
 
-/// Fails with `Timeout` and halts `child` if it is still running after `ticks`
+/// Fails with `Timeout` and halts `child` if it is still running after `Ticks`
 /// ticks.
-template <class N>
-auto timeout_ticks(std::size_t ticks, N child) {
+template <std::size_t Ticks, class N>
+auto timeout_ticks(N child) {
+  static_assert(Ticks >= 1, "beet: timeout_ticks<Ticks>() needs Ticks >= 1");
   auto inner = node(std::move(child));
-  using I = detail::timeout_impl<decltype(inner)>;
+  using I = detail::timeout_impl<decltype(inner), Ticks>;
   return Node<I, input_t<decltype(inner)>, output_t<decltype(inner)>,
-              typename I::Err>(
-      I{std::move(inner),
-        detail::at_least_one(ticks,
-                             "beet::timeout_ticks: ticks must be at least 1")});
+              typename I::Err>(I{std::move(inner)});
 }
 
 /// Passes its input through if `pred(input)` holds, otherwise fails with
