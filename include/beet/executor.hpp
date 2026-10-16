@@ -34,7 +34,7 @@ class InlineExecutor final : public Executor {
   }
 };
 
-inline Executor& inline_executor() {
+inline InlineExecutor& inline_executor() {
   static InlineExecutor executor;
   return executor;
 }
