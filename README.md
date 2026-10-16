@@ -74,7 +74,7 @@ Known gaps that example exposes:
 - **Threading resources:** a resource reaches later nodes only by riding along in every intermediate output, so node signatures carry values they only pass through.
 - **Parallel inputs:** parallel children must take an identical input type, even if each needs only part of it.
 - **Recover handlers** see only the error, not the node's input, so context they need has to travel in the error or be captured when the tree is built.
-- **Construction-time parameters:** decorator arguments such as the `repeat` count are fixed when the tree is built and cannot come from the tree's input.
+- **Compile-time counts:** decorator counts such as `repeat<3>` are template arguments, so they are fixed in the tree's type and cannot come from the tree's input or a runtime value.
 - **Same-type errors merge:** error sets are keyed by type, so two failures that are both `std::string` are indistinguishable. Wrap them in distinct types.
 - **Branches that never finish:** a controller can return `Result<never, never>`, but `parallel_any` still reports `variant<Out, never>` instead of collapsing it to `Out`.
 - **Cancellation:** halting an offloaded job only requests a stop; the function runs to completion unless it checks its `std::stop_token`.

@@ -41,6 +41,7 @@ beet_compile_fail(cf_sequence_type_mismatch "sequence\\(\\) child cannot accept 
 beet_compile_fail(cf_recover_unknown_error "recover<E>\\(\\) names an error type this node cannot produce")
 beet_compile_fail(cf_await_uncovered_error "errors are not covered by this coroutine's error set")
 beet_compile_fail(cf_parallel_input_mismatch "parallel children must share one input type")
+beet_compile_fail(cf_retry_zero "retry<Attempts>\\(\\) needs Attempts >= 1")
 
 # Tracing must leave no symbols in binaries that never attach an observer. The traced test binary
 # is the positive control that proves the pattern matches when tracing is used.
