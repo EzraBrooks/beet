@@ -28,6 +28,7 @@ template <class N, std::size_t Attempts>
 struct retry_impl {
   static constexpr std::string_view kind = "retry";
   using children = type_list<N>;
+  static constexpr bool sync = N::is_sync;
 
   N inner;
 
@@ -35,9 +36,19 @@ struct retry_impl {
   Task<result_t<N>> run(input_t<N> in, Trace trace) const {
     for (std::size_t i = 1;; ++i) {
       auto result =
-          co_await settle(inner.run(in, child_trace<retry_impl, 0>(trace)));
+          co_await settle_child(inner, in, child_trace<retry_impl, 0>(trace));
       if (result || i >= Attempts) {
         co_return std::move(result);
+      }
+    }
+  }
+
+  template <class Trace>
+  [[nodiscard]] result_t<N> run_sync(input_t<N> in, Trace trace) const {
+    for (std::size_t i = 1;; ++i) {
+      auto result = inner.run_sync(in, child_trace<retry_impl, 0>(trace));
+      if (result || i >= Attempts) {
+        return result;
       }
     }
   }
@@ -47,15 +58,27 @@ template <class N, std::size_t Times>
 struct repeat_impl {
   static constexpr std::string_view kind = "repeat";
   using children = type_list<N>;
+  static constexpr bool sync = N::is_sync;
 
   N inner;
 
   template <class Trace>
   Task<result_t<N>> run(input_t<N> in, Trace trace) const {
     for (std::size_t i = 1;; ++i) {
-      auto value = co_await inner.run(in, child_trace<repeat_impl, 0>(trace));
+      auto value =
+          co_await await_child(inner, in, child_trace<repeat_impl, 0>(trace));
       if (i >= Times) {
         co_return std::move(value);
+      }
+    }
+  }
+
+  template <class Trace>
+  [[nodiscard]] result_t<N> run_sync(input_t<N> in, Trace trace) const {
+    for (std::size_t i = 1;; ++i) {
+      auto result = inner.run_sync(in, child_trace<repeat_impl, 0>(trace));
+      if (!result || i >= Times) {
+        return result;
       }
     }
   }
@@ -66,6 +89,8 @@ struct timeout_impl {
   static constexpr std::string_view kind = "timeout_ticks";
   using children = type_list<N>;
   using Err = error_union_t<error_t<N>, Timeout>;
+  // A sync child finishes on its first tick, which is always within the limit.
+  static constexpr bool sync = N::is_sync;
 
   N inner;
 
@@ -82,6 +107,13 @@ struct timeout_impl {
       }
       co_await running;
     }
+  }
+
+  template <class Trace>
+  [[nodiscard]] Result<output_t<N>, Err> run_sync(input_t<N> in,
+                                                  Trace trace) const {
+    return to_result<output_t<N>, Err>(
+        inner.run_sync(std::move(in), child_trace<timeout_impl, 0>(trace)));
   }
 };
 

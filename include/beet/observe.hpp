@@ -189,6 +189,16 @@ struct traced {
   Task<R> wrap(Task<R> inner) const {
     return observe(std::move(inner), obs, id);
   }
+
+  template <class F>
+  auto wrap_sync(F&& run) const {
+    obs->on_start(id);
+    halt_guard<Obs> guard{obs, id};
+    auto result = std::forward<F>(run)();
+    guard.finished = true;
+    obs->on_finish(id, result.has_value() ? Status::Success : Status::Failure);
+    return result;
+  }
 };
 
 }  // namespace detail
