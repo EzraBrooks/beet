@@ -141,13 +141,15 @@ auto timeout_ticks(std::size_t ticks, N n) {
 template <class Pred>
 auto condition(Pred pred) {
   using T = detail::callable_input_t<Pred>;
-  return node<T>([pred = std::move(pred)](T value) noexcept(
-                     std::is_nothrow_invocable_v<const Pred&, const T&>&&
-                         std::is_nothrow_move_constructible_v<T>)
-                     -> Result<T, ConditionFailed> {
-    if (std::invoke(pred, std::as_const(value))) return value;
-    return make_unexpected(ConditionFailed{});
-  });
+  return node<T>(
+      [pred = std::move(pred)](T value) noexcept(
+          noexcept(static_cast<bool>(std::invoke(std::declval<const Pred&>(),
+                                                 std::declval<const T&>()))) &&
+              std::is_nothrow_move_constructible_v<T>)
+          -> Result<T, ConditionFailed> {
+        if (std::invoke(pred, std::as_const(value))) return value;
+        return make_unexpected(ConditionFailed{});
+      });
 }
 
 }  // namespace beet

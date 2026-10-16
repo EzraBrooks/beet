@@ -145,7 +145,7 @@ Task<Result<Out, Err>> lazy_call(F f, Args... args) {
 
 /// Runs a coroutine callable, returning anything it throws as `Exception`.
 template <class Out, class Err, class F, class... Args>
-Task<Result<Out, Err>> catching_task(F f, Args... args) {
+Task<Result<Out, Err>> catching_task(const F& f, Args... args) {
 #if BEET_EXCEPTIONS
   std::exception_ptr caught;
   try {

@@ -75,7 +75,7 @@ class ThreadPoolExecutor final : public Executor {
 
     auto run = [&batch, &fn](std::size_t i) {
       std::exception_ptr error;
-#if BEET_EXCEPTIONS
+#if defined(__cpp_exceptions) && !defined(BEET_NO_EXCEPTIONS)
       try {
         fn(i);
       } catch (...) {
