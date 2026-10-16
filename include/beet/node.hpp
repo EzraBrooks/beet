@@ -128,21 +128,19 @@ decltype(auto) invoke_value(const F& fn, Args&&... args) {
 }
 
 template <class Out, class Err, bool Catch, class F, class... Args>
-Task<Result<Out, Err>> lazy_call(F fn, Args... args) {
+Task<Result<Out, Err>> lazy_call(const F& fn, Args... args) {
 #if BEET_EXCEPTIONS
   if constexpr (Catch) {
     std::exception_ptr caught;
     try {
-      co_return to_result<Out, Err>(
-          invoke_value(std::as_const(fn), std::move(args)...));
+      co_return to_result<Out, Err>(invoke_value(fn, std::move(args)...));
     } catch (...) {
       caught = std::current_exception();
     }
     co_return make_unexpected(coerce<Err>(Exception{caught}));
   }
 #endif
-  co_return to_result<Out, Err>(
-      invoke_value(std::as_const(fn), std::move(args)...));
+  co_return to_result<Out, Err>(invoke_value(fn, std::move(args)...));
 }
 
 /// Runs a coroutine callable, returning anything it throws as `Exception`.
