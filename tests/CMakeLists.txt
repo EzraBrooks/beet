@@ -19,7 +19,8 @@ add_executable(
   decorators_test.cpp
   observe_test.cpp
   offload_test.cpp
-  exception_test.cpp)
+  exception_test.cpp
+  sync_test.cpp)
 target_link_libraries(beet_tests PRIVATE beet::beet doctest::doctest)
 target_compile_options(beet_tests PRIVATE ${BEET_WARNINGS})
 add_test(NAME beet_tests COMMAND beet_tests)

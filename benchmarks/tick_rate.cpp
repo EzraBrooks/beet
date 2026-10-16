@@ -1,5 +1,5 @@
-// Ticks a small tree for a fixed time and fails if the best observed tick rate
-// falls below a minimum.
+// Ticks small trees for a fixed time and fails if the best observed tick rate
+// of the mixed tree falls below a minimum.
 //
 // Usage: tick_rate [min_ticks_per_second]
 
@@ -31,17 +31,27 @@ Task<Result<int, beet::never>> approach(int x) {
   co_return x;
 }
 
-auto make_tree() {
+int step(int x) noexcept { return x + 1; }
+
+auto make_mixed_tree() {
   return beet::recover<TooFar>(beet::sequence(check, approach),
+                               [](TooFar f) { return f.at; });
+}
+
+// Every node is a plain function, so the whole tree finishes in one tick.
+auto make_sync_tree() {
+  return beet::recover<TooFar>(beet::sequence(check, step, step, step),
                                [](TooFar f) { return f.at; });
 }
 
 // Restarts the tree whenever it finishes, so frame allocation is part of the
 // measured cost.
-double measure_ticks_per_second(std::chrono::duration<double> budget,
+template <class Tree>
+double measure_ticks_per_second(const Tree& tree,
+                                std::chrono::duration<double> budget,
                                 long long& sink) {
   using clock = std::chrono::steady_clock;
-  beet::Runner runner{make_tree(), 0};
+  beet::Runner runner{tree, 0};
   long long ticks = 0;
   int input = 0;
   const auto start = clock::now();
@@ -60,25 +70,30 @@ double measure_ticks_per_second(std::chrono::duration<double> budget,
          std::chrono::duration<double>(now - start).count();
 }
 
+template <class Tree>
+double best_rate(const char* name, const Tree& tree, long long& sink) {
+  constexpr int trials = 5;
+  measure_ticks_per_second(tree, std::chrono::milliseconds(100), sink);
+  double best = 0;
+  for (int t = 0; t < trials; ++t) {
+    const double rate =
+        measure_ticks_per_second(tree, std::chrono::milliseconds(200), sink);
+    std::printf("%s trial %d: %.3g ticks/s\n", name, t + 1, rate);
+    if (rate > best) best = rate;
+  }
+  std::printf("%s best: %.3g ticks/s (%.1f ns/tick)\n", name, best, 1e9 / best);
+  return best;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
   const double minimum = argc > 1 ? std::atof(argv[1]) : 0;
-  constexpr int trials = 5;
 
   long long sink = 0;
-  measure_ticks_per_second(std::chrono::milliseconds(100), sink);
-  double best = 0;
-  for (int t = 0; t < trials; ++t) {
-    const double rate =
-        measure_ticks_per_second(std::chrono::milliseconds(200), sink);
-    std::printf("trial %d: %.3g ticks/s\n", t + 1, rate);
-    if (rate > best) best = rate;
-  }
-  std::printf(
-      "best: %.3g ticks/s (%.1f ns/tick), minimum: %.3g ticks/s, checksum "
-      "%lld\n",
-      best, 1e9 / best, minimum, sink);
+  const double best = best_rate("mixed", make_mixed_tree(), sink);
+  best_rate("sync", make_sync_tree(), sink);
+  std::printf("minimum (mixed): %.3g ticks/s, checksum %lld\n", minimum, sink);
 
   if (best < minimum) {
     std::printf("FAIL: tick rate is below the minimum\n");

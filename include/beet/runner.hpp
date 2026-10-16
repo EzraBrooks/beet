@@ -58,24 +58,25 @@ class Runner {
   /// status without re-running it.
   Status tick() {
     if constexpr (std::is_void_v<Obs>) {
-      if (!run_) {
-        run_.emplace(tree_(input_));
-      }
-      return run_->tick();
+      return advance(detail::untraced{});
     } else {
       const std::uint64_t tick = slot_.ticks++;
       slot_.observer->on_tick_begin(tick);
-      if (!run_) {
-        run_.emplace(tree_.run(input_, detail::traced<Obs>{slot_.observer, 0}));
-      }
-      const Status status = run_->tick();
+      const Status status = advance(detail::traced<Obs>{slot_.observer, 0});
       slot_.observer->on_tick_end(tick, status);
       return status;
     }
   }
 
   [[nodiscard]] Status status() const {
-    return run_ ? run_->status() : Status::Idle;
+    if (!run_) {
+      return Status::Idle;
+    }
+    if constexpr (N::is_sync) {
+      return run_->has_value() ? Status::Success : Status::Failure;
+    } else {
+      return run_->status();
+    }
   }
 
   /// Halts every running node. The next `tick()` starts the tree again from
@@ -88,24 +89,49 @@ class Runner {
   }
 
   [[nodiscard]] const result_type& result() const {
-    if (!run_ || !run_->done()) {
-#if BEET_EXCEPTIONS
-      throw std::logic_error(
-          "beet::Runner::result() called before the tree finished");
-#else
-      std::fputs("beet::Runner::result() called before the tree finished\n",
-                 stderr);
-      std::abort();
-#endif
+    if constexpr (N::is_sync) {
+      if (run_) {
+        return *run_;
+      }
+    } else {
+      if (run_ && run_->done()) {
+        return run_->result();
+      }
     }
-    return run_->result();
+#if BEET_EXCEPTIONS
+    throw std::logic_error(
+        "beet::Runner::result() called before the tree finished");
+#else
+    std::fputs("beet::Runner::result() called before the tree finished\n",
+               stderr);
+    std::abort();
+#endif
   }
 
  private:
+  // A sync tree finishes within one tick, so it needs no task to resume.
+  using run_state = std::conditional_t<N::is_sync, result_type,
+                                       detail::TaskRunner<result_type>>;
+
+  template <class Trace>
+  Status advance(Trace trace) {
+    if constexpr (N::is_sync) {
+      if (!run_) {
+        run_.emplace(tree_.run_sync(input_, trace));
+      }
+      return status();
+    } else {
+      if (!run_) {
+        run_.emplace(tree_.run(input_, trace));
+      }
+      return run_->tick();
+    }
+  }
+
   N tree_;
   input_type input_;
   [[no_unique_address]] detail::observer_slot<Obs> slot_;
-  std::optional<detail::TaskRunner<result_type>> run_;
+  std::optional<run_state> run_;
 };
 
 template <class N, class I>

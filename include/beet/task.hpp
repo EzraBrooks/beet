@@ -44,6 +44,23 @@ settle_t<T> settle(Task<T>&& task) {
 
 namespace detail {
 
+/// An already computed child result, awaited like a finished `Task<R>` without
+/// a coroutine frame. `Settled` returns the whole result instead of
+/// propagating its error.
+template <class R, bool Settled = false>
+struct ready_t {
+  R result;
+};
+
+}  // namespace detail
+
+template <class R>
+detail::ready_t<R, true> settle(detail::ready_t<R>&& ready) {
+  return {std::move(ready.result)};
+}
+
+namespace detail {
+
 template <class T>
 struct promise;
 
@@ -155,6 +172,37 @@ struct try_awaiter {
   }
 };
 
+template <class U>
+struct ready_raw_awaiter {
+  U result;
+
+  [[nodiscard]] bool await_ready() const noexcept { return true; }
+  void await_suspend(std::coroutine_handle<> /*unused*/) const noexcept {}
+  U await_resume() { return std::move(result); }
+};
+
+/// Like `try_awaiter` for a result that is already known: a failure completes
+/// the parent with the error without resuming it.
+template <class U, class T>
+struct ready_try_awaiter {
+  static_assert(error_subset_v<typename U::error_type, typename T::error_type>,
+                "beet: co_await on a child whose errors are not covered by "
+                "this coroutine's error set");
+
+  U result;
+  promise_base* parent;
+
+  [[nodiscard]] bool await_ready() const noexcept { return result.has_value(); }
+  std::coroutine_handle<> await_suspend(
+      std::coroutine_handle<> /*unused*/) noexcept {
+    auto& outer = static_cast<promise<T>&>(*parent);
+    outer.value.emplace(
+        unexpect, coerce<typename T::error_type>(std::move(result.error())));
+    return outer.on_final();
+  }
+  typename U::value_type await_resume() { return std::move(*result); }
+};
+
 template <class T>
 struct promise final : promise_base {
   std::optional<T> value;
@@ -186,6 +234,15 @@ struct promise final : promise_base {
       return try_awaiter<U, T>{std::move(task), this};
     } else {
       return raw_awaiter<U>{std::move(task), this};
+    }
+  }
+
+  template <class U, bool Settled>
+  auto await_transform(ready_t<U, Settled>&& ready) {
+    if constexpr (!Settled && is_result_v<T> && is_result_v<U>) {
+      return ready_try_awaiter<U, T>{std::move(ready.result), this};
+    } else {
+      return ready_raw_awaiter<U>{std::move(ready.result)};
     }
   }
 

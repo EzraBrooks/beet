@@ -47,12 +47,18 @@ struct sequence_impl {
   using In = input_t<child_t<0>>;
   using Out = output_t<child_t<sizeof...(Cs) - 1>>;
   using Err = error_union_t<error_t<Cs>...>;
+  static constexpr bool sync = (Cs::is_sync && ...);
 
   std::tuple<Cs...> nodes;
 
   template <class Trace>
   Task<Result<Out, Err>> run(In in, Trace trace) const {
     return run_all(std::move(in), trace, std::index_sequence_for<Cs...>{});
+  }
+
+  template <class Trace>
+  [[nodiscard]] Result<Out, Err> run_sync(In in, Trace trace) const {
+    return step<0>(std::move(in), trace);
   }
 
  private:
@@ -63,13 +69,29 @@ struct sequence_impl {
                                  std::index_sequence<I...> /*unused*/) const {
     std::tuple<std::optional<In>, std::optional<output_t<Cs>>...> values;
     std::get<0>(values).emplace(std::move(in));
-    ((void)std::get<I + 1>(values).emplace(co_await std::get<I>(nodes).run(
+    ((void)std::get<I + 1>(values).emplace(co_await await_child(
+         std::get<I>(nodes),
          // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
          feed<child_t<I>>(std::move(*std::get<I>(values))),
          child_trace<sequence_impl, I>(trace))),
      ...);
     // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     co_return std::move(*std::get<sizeof...(Cs)>(values));
+  }
+
+  template <std::size_t I, class V, class Trace>
+  [[nodiscard]] Result<Out, Err> step(V value, Trace trace) const {
+    auto result =
+        std::get<I>(nodes).run_sync(feed<child_t<I>>(std::move(value)),
+                                    child_trace<sequence_impl, I>(trace));
+    if (!result) {
+      return make_unexpected(coerce<Err>(std::move(result).error()));
+    }
+    if constexpr (I + 1 == sizeof...(Cs)) {
+      return std::move(*result);
+    } else {
+      return step<I + 1>(std::move(*result), trace);
+    }
   }
 };
 
@@ -83,21 +105,26 @@ struct recover_impl<N, Handler, type_list<Hs...>> {
       "beet: recover() handler cannot be called with every handled error type");
 
   template <class E>
-  using handler_error_t = typename call_traits<Handler, E&&>::err;
+  using handler_traits = call_traits<Handler, E&&>;
+  template <class E>
+  using handler_error_t = typename handler_traits<E>::err;
+  template <class E>
+  static constexpr bool handler_sync_v = !handler_traits<E>::lifted::is_task;
 
   static constexpr std::string_view kind = "recover";
   using children = type_list<N>;
   using Out = output_t<N>;
   using Err =
       error_union_t<error_remove_t<error_t<N>, Hs...>, handler_error_t<Hs>...>;
+  static constexpr bool sync = N::is_sync && (handler_sync_v<Hs> && ...);
 
   N inner;
   Handler handler;
 
   template <class Trace>
   Task<Result<Out, Err>> run(input_t<N> in, Trace trace) const {
-    auto result = co_await settle(
-        inner.run(std::move(in), child_trace<recover_impl, 0>(trace)));
+    auto result = co_await settle_child(inner, std::move(in),
+                                        child_trace<recover_impl, 0>(trace));
     if (result) {
       co_return std::move(*result);
     }
@@ -110,13 +137,47 @@ struct recover_impl<N, Handler, type_list<Hs...>> {
     }
   }
 
+  template <class Trace>
+  [[nodiscard]] Result<Out, Err> run_sync(input_t<N> in, Trace trace) const {
+    auto result =
+        inner.run_sync(std::move(in), child_trace<recover_impl, 0>(trace));
+    if (result) {
+      return std::move(*result);
+    }
+    if constexpr (is_variant_v<error_t<N>>) {
+      return std::visit(
+          [this](auto& error) { return this->handle_sync(std::move(error)); },
+          result.error());
+    } else {
+      return handle_sync(std::move(result.error()));
+    }
+  }
+
+ private:
   template <class E>
   Task<Result<Out, Err>> handle(E error) const {
     if constexpr ((std::is_same_v<E, Hs> || ...)) {
-      co_return to_result<Out, Err>(
-          co_await settle(call(handler, std::move(error))));
+      if constexpr (!handler_sync_v<E>) {
+        co_return to_result<Out, Err>(
+            co_await settle(call(handler, std::move(error))));
+      } else {
+        co_return handle_sync(std::move(error));
+      }
     } else {
-      co_return make_unexpected(coerce<Err>(std::move(error)));
+      co_return handle_sync(std::move(error));
+    }
+  }
+
+  template <class E>
+  [[nodiscard]] Result<Out, Err> handle_sync(E&& error) const {
+    static_assert(!std::is_reference_v<E>);
+    if constexpr ((std::is_same_v<E, Hs> || ...)) {
+      using C = handler_traits<E>;
+      return to_result<Out, Err>(call_sync<typename C::out, typename C::err,
+                                           may_throw_v<Handler, E&&>>(
+          handler, std::forward<E>(error)));
+    } else {
+      return make_unexpected(coerce<Err>(std::forward<E>(error)));
     }
   }
 };
@@ -131,6 +192,7 @@ struct fallback_impl {
   using In = input_t<child_t<0>>;
   using Out = union_t<output_t<Cs>...>;
   using Err = error_t<child_t<sizeof...(Cs) - 1>>;
+  static constexpr bool sync = (Cs::is_sync && ...);
 
   std::tuple<Cs...> nodes;
 
@@ -139,20 +201,42 @@ struct fallback_impl {
     return attempt<0>(std::move(in), trace);
   }
 
+  template <class Trace>
+  [[nodiscard]] Result<Out, Err> run_sync(In in, Trace trace) const {
+    return attempt_sync<0>(in, trace);
+  }
+
  private:
   template <std::size_t I, class Trace>
   Task<Result<Out, Err>> attempt(In in, Trace trace) const {
     if constexpr (I + 1 == sizeof...(Cs)) {
-      co_return to_result<Out, Err>(co_await settle(
-          std::get<I>(nodes).run(feed<child_t<I>>(std::move(in)),
-                                 child_trace<fallback_impl, I>(trace))));
+      co_return to_result<Out, Err>(co_await settle_child(
+          std::get<I>(nodes), feed<child_t<I>>(std::move(in)),
+          child_trace<fallback_impl, I>(trace)));
     } else {
-      auto result = co_await settle(std::get<I>(nodes).run(
-          feed<child_t<I>>(in), child_trace<fallback_impl, I>(trace)));
+      auto result =
+          co_await settle_child(std::get<I>(nodes), feed<child_t<I>>(in),
+                                child_trace<fallback_impl, I>(trace));
       if (result) {
         co_return coerce<Out>(std::move(*result));
       }
       co_return co_await attempt<I + 1>(std::move(in), trace);
+    }
+  }
+
+  template <std::size_t I, class Trace>
+  [[nodiscard]] Result<Out, Err> attempt_sync(In& in, Trace trace) const {
+    if constexpr (I + 1 == sizeof...(Cs)) {
+      return to_result<Out, Err>(
+          std::get<I>(nodes).run_sync(feed<child_t<I>>(std::move(in)),
+                                      child_trace<fallback_impl, I>(trace)));
+    } else {
+      auto result = std::get<I>(nodes).run_sync(
+          feed<child_t<I>>(in), child_trace<fallback_impl, I>(trace));
+      if (result) {
+        return coerce<Out>(std::move(*result));
+      }
+      return attempt_sync<I + 1>(in, trace);
     }
   }
 };
@@ -167,14 +251,22 @@ struct finally_impl {
     ~guard() { (*f)(); }
   };
 
+  static constexpr bool sync = N::is_sync;
+
   N inner;
   F f;
 
   template <class Trace>
   Task<result_t<N>> run(input_t<N> in, Trace trace) const {
     guard on_exit{&f};
-    co_return co_await settle(
-        inner.run(std::move(in), child_trace<finally_impl, 0>(trace)));
+    co_return co_await settle_child(inner, std::move(in),
+                                    child_trace<finally_impl, 0>(trace));
+  }
+
+  template <class Trace>
+  [[nodiscard]] result_t<N> run_sync(input_t<N> in, Trace trace) const {
+    guard on_exit{&f};
+    return inner.run_sync(std::move(in), child_trace<finally_impl, 0>(trace));
   }
 };
 
@@ -200,12 +292,18 @@ struct named_impl {
   static constexpr bool transparent = true;
   static constexpr std::string_view label = Label.view();
   using inner_type = N;
+  static constexpr bool sync = N::is_sync;
 
   N inner;
 
   template <class Trace>
   Task<result_t<N>> run(input_t<N> in, Trace trace) const {
     return inner.run(std::move(in), trace);
+  }
+
+  template <class Trace>
+  [[nodiscard]] result_t<N> run_sync(input_t<N> in, Trace trace) const {
+    return inner.run_sync(std::move(in), trace);
   }
 };
 

@@ -127,20 +127,25 @@ decltype(auto) invoke_value(const F& fn, Args&&... args) {
   }
 }
 
+/// Invokes a plain callable immediately, returning anything it throws as
+/// `Exception` when `Catch` is set.
 template <class Out, class Err, bool Catch, class F, class... Args>
-Task<Result<Out, Err>> lazy_call(const F& fn, Args... args) {
+Result<Out, Err> call_sync(const F& fn, Args&&... args) {
 #if BEET_EXCEPTIONS
   if constexpr (Catch) {
-    std::exception_ptr caught;
     try {
-      co_return to_result<Out, Err>(invoke_value(fn, std::move(args)...));
+      return to_result<Out, Err>(invoke_value(fn, std::forward<Args>(args)...));
     } catch (...) {
-      caught = std::current_exception();
+      return make_unexpected(coerce<Err>(Exception{std::current_exception()}));
     }
-    co_return make_unexpected(coerce<Err>(Exception{caught}));
   }
 #endif
-  co_return to_result<Out, Err>(invoke_value(fn, std::move(args)...));
+  return to_result<Out, Err>(invoke_value(fn, std::forward<Args>(args)...));
+}
+
+template <class Out, class Err, bool Catch, class F, class... Args>
+Task<Result<Out, Err>> lazy_call(const F& fn, Args... args) {
+  co_return call_sync<Out, Err, Catch>(fn, std::move(args)...);
 }
 
 /// Runs a coroutine callable, returning anything it throws as `Exception`.
@@ -212,9 +217,23 @@ std::function<Task<Result<Out, Err>>(In)> erase(N child) {
   }
 }
 
+/// `call_traits` of a leaf callable, which is called with its input only if it
+/// takes one.
+template <class F, class In,
+          bool TakesInput = std::is_invocable_v<const F&, In&&>>
+struct leaf_traits : call_traits<F, In&&> {
+  static constexpr bool catches = may_throw_v<F, In&&>;
+};
+template <class F, class In>
+struct leaf_traits<F, In, false> : call_traits<F> {
+  static constexpr bool catches = may_throw_v<F>;
+};
+
 template <class F, class In>
 struct lift_impl {
   static constexpr std::string_view kind = "leaf";
+  using traits = leaf_traits<F, In>;
+  static constexpr bool sync = !traits::lifted::is_task;
 
   F f;
 
@@ -224,6 +243,18 @@ struct lift_impl {
       return call(f, std::move(in));
     } else {
       return call(f);
+    }
+  }
+
+  template <class Trace>
+  [[nodiscard]] Result<typename traits::out, typename traits::err> run_sync(
+      In in, Trace /*unused*/) const {
+    using Out = typename traits::out;
+    using Err = typename traits::err;
+    if constexpr (std::is_invocable_v<const F&, In>) {
+      return call_sync<Out, Err, traits::catches>(f, std::move(in));
+    } else {
+      return call_sync<Out, Err, traits::catches>(f);
     }
   }
 };
@@ -239,6 +270,17 @@ struct untraced {
 
 template <class Impl>
 inline constexpr bool is_transparent_v = requires { Impl::transparent; };
+
+/// Whether `Impl` always finishes on the tick it starts, so it can run as a
+/// plain call through `run_sync` instead of a coroutine.
+template <class Impl>
+inline constexpr bool impl_sync_v = [] {
+  if constexpr (requires { Impl::sync; }) {
+    return Impl::sync;
+  } else {
+    return false;
+  }
+}();
 
 template <class Impl>
 struct impl_children {
@@ -298,6 +340,9 @@ constexpr auto child_trace(const Trace& trace) {
   return trace.template child<child_offset<Impl, I>::value>();
 }
 
+template <class N, class In, class Trace>
+Task<result_t<N>> lazy_run(const N& node, In in, Trace trace);
+
 }  // namespace detail
 
 /// A typed behavior tree node: `In -> Task<Result<Out, Err>>`.
@@ -312,6 +357,10 @@ class Node {
   using error_type = Err;
   using result_type = Result<Out, Err>;
   using impl_type = Impl;
+
+  /// Whether the whole subtree finishes on the tick it starts. Such nodes run
+  /// through `run_sync` without allocating coroutine frames.
+  static constexpr bool is_sync = detail::impl_sync_v<Impl>;
 
   explicit Node(Impl impl) : impl_(std::move(impl)) {}
 
@@ -330,11 +379,26 @@ class Node {
   /// events to an observer.
   template <class Trace>
   Task<result_type> run(In in, Trace trace) const {
-    if constexpr (std::is_same_v<Trace, detail::untraced> ||
-                  detail::is_transparent_v<Impl>) {
+    if constexpr (is_sync) {
+      return detail::lazy_run(*this, std::move(in), trace);
+    } else if constexpr (std::is_same_v<Trace, detail::untraced> ||
+                         detail::is_transparent_v<Impl>) {
       return run_impl(std::move(in), trace);
     } else {
       return trace.wrap(run_impl(std::move(in), trace));
+    }
+  }
+
+  /// Runs a sync node to completion in the caller's frame.
+  template <class Trace>
+    requires is_sync
+  [[nodiscard]] result_type run_sync(In in, Trace trace) const {
+    if constexpr (std::is_same_v<Trace, detail::untraced> ||
+                  detail::is_transparent_v<Impl>) {
+      return impl_.run_sync(std::move(in), trace);
+    } else {
+      return trace.wrap_sync(
+          [&] { return impl_.run_sync(std::move(in), trace); });
     }
   }
 
@@ -354,6 +418,33 @@ class Node {
 template <class In, class Out, class Err>
 using AnyNode = Node<std::function<Task<Result<Out, Err>>(In)>, In, Out, Err>;
 
+namespace detail {
+
+/// Defers a sync node into a task, for callers that need one.
+template <class N, class In, class Trace>
+Task<result_t<N>> lazy_run(const N& node, In in, Trace trace) {
+  co_return node.run_sync(std::move(in), trace);
+}
+
+/// Runs child `node` for `co_await` in a combinator body. A sync child runs
+/// right away in the parent's frame; a failure propagates either way.
+template <class N, class In, class Trace>
+auto await_child(const N& node, In&& in, Trace trace) {
+  if constexpr (N::is_sync) {
+    return ready_t<result_t<N>>{node.run_sync(std::forward<In>(in), trace)};
+  } else {
+    return node.run(std::forward<In>(in), trace);
+  }
+}
+
+/// Like `await_child`, but `co_await` yields the child's whole `Result`.
+template <class N, class In, class Trace>
+auto settle_child(const N& node, In&& in, Trace trace) {
+  return settle(await_child(node, std::forward<In>(in), trace));
+}
+
+}  // namespace detail
+
 /// Lifts a callable into a node with an explicit input type. Use this for
 /// generic lambdas.
 template <class In, class F>
@@ -364,10 +455,8 @@ auto node(F fn) {
     return fn;
   } else {
     using Impl = detail::lift_impl<F, In>;
-    using L = detail::lift_of<decltype(std::declval<const Impl&>().run(
-        std::declval<In>(), detail::untraced{}))>;
-    return Node<Impl, In, typename L::out, typename L::err>(
-        Impl{std::move(fn)});
+    return Node<Impl, In, typename Impl::traits::out,
+                typename Impl::traits::err>(Impl{std::move(fn)});
   }
 }
 
