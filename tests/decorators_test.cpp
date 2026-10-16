@@ -15,7 +15,7 @@ using beet::Task;
 
 struct Flaky {};
 
-Task<Result<int, never>> takes_ticks(int n) {
+Task<Result<int, never>> takes_ticks(int n) noexcept {
   for (int i = 1; i < n; ++i) co_await beet::running;
   co_return n;
 }
@@ -77,12 +77,12 @@ TEST_CASE("timeout_ticks fails with Timeout and adds it to the error set") {
 }
 
 TEST_CASE("condition passes its input through or fails") {
-  auto positive = beet::condition([](int x) { return x > 0; });
+  auto positive = beet::condition([](int x) noexcept { return x > 0; });
   static_assert(std::is_same_v<input_t<decltype(positive)>, int>);
   static_assert(
       std::is_same_v<beet::error_t<decltype(positive)>, beet::ConditionFailed>);
 
-  auto tree = beet::sequence(positive, [](int x) { return x * 10; });
+  auto tree = beet::sequence(positive, [](int x) noexcept { return x * 10; });
   beet::Runner yes{tree, 4};
   yes.tick();
   CHECK(yes.result().value() == 40);

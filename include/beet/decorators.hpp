@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdio>
+#include <cstdlib>
 #include <functional>
 #include <stdexcept>
 #include <string_view>
@@ -83,7 +85,14 @@ struct timeout_impl {
 };
 
 inline std::size_t at_least_one(std::size_t n, const char* what) {
+#if BEET_EXCEPTIONS
   if (n == 0) throw std::invalid_argument(what);
+#else
+  if (n == 0) {
+    std::fputs(what, stderr);
+    std::abort();
+  }
+#endif
   return n;
 }
 
@@ -133,7 +142,11 @@ template <class Pred>
 auto condition(Pred pred) {
   using T = detail::callable_input_t<Pred>;
   return node<T>(
-      [pred = std::move(pred)](T value) -> Result<T, ConditionFailed> {
+      [pred = std::move(pred)](T value) noexcept(
+          noexcept(static_cast<bool>(std::invoke(std::declval<const Pred&>(),
+                                                 std::declval<const T&>()))) &&
+              std::is_nothrow_move_constructible_v<T>)
+          -> Result<T, ConditionFailed> {
         if (std::invoke(pred, std::as_const(value))) return value;
         return make_unexpected(ConditionFailed{});
       });

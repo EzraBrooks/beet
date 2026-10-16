@@ -2,6 +2,8 @@
 
 #include <concepts>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <optional>
 #include <stdexcept>
 #include <type_traits>
@@ -81,9 +83,16 @@ class Runner {
   }
 
   const result_type& result() const {
-    if (!run_ || !run_->done())
+    if (!run_ || !run_->done()) {
+#if BEET_EXCEPTIONS
       throw std::logic_error(
           "beet::Runner::result() called before the tree finished");
+#else
+      std::fputs("beet::Runner::result() called before the tree finished\n",
+                 stderr);
+      std::abort();
+#endif
+    }
     return run_->result();
   }
 

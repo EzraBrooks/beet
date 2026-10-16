@@ -73,7 +73,7 @@ auto offload(F fn) {
   return node<In>([fn = std::move(fn)](In in) -> Task<Result<Out, Err>> {
     auto state = std::make_shared<State>();
     std::thread([state, fn, in = std::move(in)]() mutable {
-      try {
+      auto job = [&] {
         if constexpr (std::is_void_v<R>) {
           detail::invoke_job(fn, std::move(in), state->stop.get_token());
           state->value.emplace(Out{});
@@ -81,9 +81,16 @@ auto offload(F fn) {
           state->value.emplace(detail::to_result<Out, Err>(
               detail::invoke_job(fn, std::move(in), state->stop.get_token())));
         }
+      };
+#if BEET_EXCEPTIONS
+      try {
+        job();
       } catch (...) {
         state->exception = std::current_exception();
       }
+#else
+      job();
+#endif
       state->done.store(true, std::memory_order_release);
     }).detach();
 

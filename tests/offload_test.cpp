@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <stop_token>
 #include <thread>
+#include <variant>
 
 #include "beet/beet.hpp"
 
@@ -34,7 +35,7 @@ TEST_CASE("offload runs a function off the tick and yields its result") {
   auto tree = beet::sequence(beet::offload([](int x) { return x * 2; }),
                              [](int x) { return x + 1; });
   static_assert(std::is_same_v<beet::input_t<decltype(tree)>, int>);
-  static_assert(std::is_same_v<beet::error_t<decltype(tree)>, beet::never>);
+  static_assert(std::is_same_v<beet::error_t<decltype(tree)>, beet::Exception>);
 
   beet::Runner runner{tree, 20};
   CHECK(tick_until_done(runner) == Status::Success);
@@ -45,14 +46,16 @@ TEST_CASE("offload propagates typed errors and exceptions") {
   auto failing = beet::offload([](int code) -> Result<int, Bad> {
     return beet::make_unexpected(Bad{code});
   });
-  static_assert(std::is_same_v<beet::error_t<decltype(failing)>, Bad>);
+  static_assert(std::is_same_v<beet::error_t<decltype(failing)>,
+                               std::variant<Bad, beet::Exception>>);
   beet::Runner fails{failing, 7};
   CHECK(tick_until_done(fails) == Status::Failure);
-  CHECK(fails.result().error().code == 7);
+  CHECK(std::get<Bad>(fails.result().error()).code == 7);
 
   beet::Runner throws{beet::offload([] { throw std::runtime_error("boom"); }),
                       beet::unit{}};
-  CHECK_THROWS_AS(tick_until_done(throws), std::runtime_error);
+  CHECK(tick_until_done(throws) == Status::Failure);
+  CHECK(throws.result().error().what() == "boom");
 }
 
 TEST_CASE("offload keeps ticking while the job is still working") {

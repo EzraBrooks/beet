@@ -1,6 +1,17 @@
 #pragma once
 
+#include <exception>
+#include <string>
+
 #include <tl/expected.hpp>
+
+/// Nonzero when beet catches exceptions thrown by user callables. Compiling
+/// without exception support, or defining `BEET_NO_EXCEPTIONS`, turns it off.
+#if defined(__cpp_exceptions) && !defined(BEET_NO_EXCEPTIONS)
+#define BEET_EXCEPTIONS 1
+#else
+#define BEET_EXCEPTIONS 0
+#endif
 
 namespace beet {
 
@@ -20,6 +31,27 @@ struct unit {
 /// always holds a value.
 struct never {
   never() = delete;
+};
+
+/// An exception thrown by a callable that is not `noexcept`, caught and
+/// returned as an error.
+struct Exception {
+  std::exception_ptr ptr;
+
+  /// The exception's `what()`, if it derives from `std::exception`.
+  std::string what() const {
+#if BEET_EXCEPTIONS
+    try {
+      std::rethrow_exception(ptr);
+    } catch (const std::exception& e) {
+      return e.what();
+    } catch (...) {
+      return "unknown exception";
+    }
+#else
+    return "unknown exception";
+#endif
+  }
 };
 
 }  // namespace beet

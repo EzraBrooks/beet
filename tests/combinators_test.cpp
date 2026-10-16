@@ -23,17 +23,17 @@ struct Rewritten {
   std::string why;
 };
 
-Result<int, Negative> non_negative(int x) {
+Result<int, Negative> non_negative(int x) noexcept {
   if (x < 0) return beet::make_unexpected(Negative{});
   return x;
 }
-Result<int, TooBig> small(int x) {
+Result<int, TooBig> small(int x) noexcept {
   if (x > 100) return beet::make_unexpected(TooBig{x});
   return x;
 }
-std::string show(int x) { return std::to_string(x); }
+std::string show(int x) noexcept { return std::to_string(x); }
 
-Task<Result<int, never>> slow_add_one(int x) {
+Task<Result<int, never>> slow_add_one(int x) noexcept {
   co_await beet::running;
   co_return x + 1;
 }
@@ -86,8 +86,9 @@ TEST_CASE("sequence waits on running children") {
 }
 
 TEST_CASE("recover<E> removes only the handled error type") {
-  auto tree = beet::recover<TooBig>(beet::sequence(non_negative, small),
-                                    [](TooBig t) { return t.value / 10; });
+  auto tree =
+      beet::recover<TooBig>(beet::sequence(non_negative, small),
+                            [](TooBig t) noexcept { return t.value / 10; });
   static_assert(std::is_same_v<beet::error_t<decltype(tree)>, Negative>);
   CHECK(run(tree, 500).value() == 50);
   CHECK_FALSE(run(tree, -1).has_value());
@@ -97,7 +98,7 @@ TEST_CASE(
     "recover with no listed types handles everything and yields an infallible "
     "node") {
   auto tree = beet::recover(beet::sequence(non_negative, small),
-                            [](const auto&) { return 0; });
+                            [](const auto&) noexcept { return 0; });
   static_assert(std::is_same_v<beet::error_t<decltype(tree)>, never>);
   CHECK(run(tree, -1).value() == 0);
   CHECK(run(tree, 500).value() == 0);
@@ -105,8 +106,8 @@ TEST_CASE(
 }
 
 TEST_CASE("a recover handler returning Result translates errors") {
-  auto tree =
-      beet::recover(non_negative, [](Negative) -> Result<int, Rewritten> {
+  auto tree = beet::recover(
+      non_negative, [](Negative) noexcept -> Result<int, Rewritten> {
         return beet::make_unexpected(Rewritten{"negative input"});
       });
   static_assert(std::is_same_v<beet::error_t<decltype(tree)>, Rewritten>);
@@ -115,10 +116,11 @@ TEST_CASE("a recover handler returning Result translates errors") {
 }
 
 TEST_CASE("a recover handler returning Result can also succeed implicitly") {
-  auto tree = beet::recover(small, [](TooBig t) -> Result<int, Rewritten> {
-    if (t.value < 1000) return 100;
-    return beet::make_unexpected(Rewritten{"way too big"});
-  });
+  auto tree =
+      beet::recover(small, [](TooBig t) noexcept -> Result<int, Rewritten> {
+        if (t.value < 1000) return 100;
+        return beet::make_unexpected(Rewritten{"way too big"});
+      });
   CHECK(run(tree, 500).value() == 100);
   CHECK(run(tree, 5000).error().why == "way too big");
 }
@@ -136,10 +138,11 @@ TEST_CASE("a recover handler can be a coroutine") {
 }
 
 TEST_CASE("fallback tries the next alternative on the same input") {
-  auto tree = beet::fallback(small, [](int x) -> Result<int, Negative> {
-    if (x < 0) return beet::make_unexpected(Negative{});
-    return 100;
-  });
+  auto tree =
+      beet::fallback(small, [](int x) noexcept -> Result<int, Negative> {
+        if (x < 0) return beet::make_unexpected(Negative{});
+        return 100;
+      });
   static_assert(std::is_same_v<output_t<decltype(tree)>, int>);
   static_assert(std::is_same_v<beet::error_t<decltype(tree)>, Negative>);
   CHECK(run(tree, 5).value() == 5);

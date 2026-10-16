@@ -80,8 +80,7 @@ struct recover_impl<N, Handler, type_list<Hs...>> {
       "beet: recover() handler cannot be called with every handled error type");
 
   template <class E>
-  using handler_error_t =
-      typename lift_of<std::invoke_result_t<const Handler&, E&&>>::err;
+  using handler_error_t = typename call_traits<Handler, E&&>::err;
 
   static constexpr std::string_view kind = "recover";
   using children = type_list<N>;
