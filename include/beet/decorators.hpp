@@ -28,7 +28,7 @@ template <class N, std::size_t Attempts>
 struct retry_impl {
   static constexpr std::string_view kind = "retry";
   using children = type_list<N>;
-  static constexpr bool sync = N::is_sync;
+  static constexpr bool sync = N::is_sync && Attempts == 1;
 
   N inner;
 
@@ -40,17 +40,14 @@ struct retry_impl {
       if (result || i >= Attempts) {
         co_return std::move(result);
       }
+      co_await running;
     }
   }
 
   template <class Trace>
+    requires(Attempts == 1)
   [[nodiscard]] result_t<N> run_sync(input_t<N> in, Trace trace) const {
-    for (std::size_t i = 1;; ++i) {
-      auto result = inner.run_sync(in, child_trace<retry_impl, 0>(trace));
-      if (result || i >= Attempts) {
-        return result;
-      }
-    }
+    return inner.run_sync(std::move(in), child_trace<retry_impl, 0>(trace));
   }
 };
 
@@ -58,7 +55,7 @@ template <class N, std::size_t Times>
 struct repeat_impl {
   static constexpr std::string_view kind = "repeat";
   using children = type_list<N>;
-  static constexpr bool sync = N::is_sync;
+  static constexpr bool sync = N::is_sync && Times == 1;
 
   N inner;
 
@@ -70,17 +67,14 @@ struct repeat_impl {
       if (i >= Times) {
         co_return std::move(value);
       }
+      co_await running;
     }
   }
 
   template <class Trace>
+    requires(Times == 1)
   [[nodiscard]] result_t<N> run_sync(input_t<N> in, Trace trace) const {
-    for (std::size_t i = 1;; ++i) {
-      auto result = inner.run_sync(in, child_trace<repeat_impl, 0>(trace));
-      if (!result || i >= Times) {
-        return result;
-      }
-    }
+    return inner.run_sync(std::move(in), child_trace<repeat_impl, 0>(trace));
   }
 };
 
@@ -120,7 +114,8 @@ struct timeout_impl {
 }  // namespace detail
 
 /// Re-runs `child` on the same input until it succeeds, up to `Attempts` times.
-/// Fails with the last error.
+/// Each retry starts on the tick after the previous attempt fails. Fails with
+/// the last error.
 template <std::size_t Attempts, class N>
 auto retry(N child) {
   static_assert(Attempts >= 1, "beet: retry<Attempts>() needs Attempts >= 1");
@@ -130,8 +125,9 @@ auto retry(N child) {
               error_t<decltype(inner)>>(I{std::move(inner)});
 }
 
-/// Runs `child` on the same input `Times` times in a row, stopping at the first
-/// failure. Yields the last output.
+/// Runs `child` on the same input `Times` times, stopping at the first failure.
+/// Each run starts on the tick after the previous one succeeds. Yields the last
+/// output.
 template <std::size_t Times, class N>
 auto repeat(N child) {
   static_assert(Times >= 1, "beet: repeat<Times>() needs Times >= 1");

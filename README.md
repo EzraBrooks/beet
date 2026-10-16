@@ -52,8 +52,6 @@ The same rules apply inside coroutine nodes. `co_await child(x)` yields the chil
 
 **Exceptions are errors too.** Any leaf or handler that is not `noexcept` gets `beet::Exception` in its error set, and beet catches whatever it throws and returns it as that error. `Exception::what()` gives the message, and `recover<beet::Exception>` handles it like any other error. A `noexcept` callable opts out: plain functions that throw anyway terminate, and `noexcept` coroutines rethrow from `tick()`. When exceptions are disabled (`-fno-exceptions`, or `BEET_NO_EXCEPTIONS`), nothing gains `beet::Exception` and beet never throws.
 
-**Counts are part of the type too.** `retry<3>`, `repeat<3>` and `timeout_ticks<10>` take their counts as template arguments, so a count of zero fails to compile and loop bounds are constants. A count that varies at runtime belongs in a coroutine leaf.
-
 ## Behavior tree semantics
 
 | Concept | beet |
@@ -76,7 +74,7 @@ beet aims to do as much work as possible at compile time, so the compiler can in
 - **Plain functions stay plain.** A subtree made only of plain functions finishes on the tick it starts, so beet runs it as ordinary nested calls with no coroutine frames. beet allocates nothing to tick a tree made entirely of plain functions.
 - **Tracing compiles away.** Without an observer, every tracing hook is discarded at compile time (see [Opt-in tracing](#opt-in-tracing)).
 - **No virtual dispatch on the default path.** Parallel nodes on the default inline executor tick their children with a compile-time fold, and a `ThreadPoolExecutor` is called directly rather than through a virtual interface.
-- **Counts are constants.** Decorator counts are template arguments, so their loop bounds are known to the compiler.
+- **Ticks stay short.** `retry` and `repeat` start each new attempt on the next tick, so no decorator loops within a single tick.
 
 ## Long-running work and concurrent branches
 

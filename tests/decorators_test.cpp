@@ -21,7 +21,8 @@ Task<Result<int, never>> takes_ticks(int ticks) noexcept {
 
 }  // namespace
 
-TEST_CASE("retry re-runs a failing node up to the attempt limit") {
+TEST_CASE(
+    "retry re-runs a failing node once per tick up to the attempt limit") {
   int calls = 0;
   auto flaky = beet::node([&calls](int succeed_on) -> Result<int, Flaky> {
     if (++calls < succeed_on) {
@@ -31,17 +32,26 @@ TEST_CASE("retry re-runs a failing node up to the attempt limit") {
   });
 
   beet::Runner ok{beet::retry<3>(flaky), 3};
-  ok.tick();
+  CHECK(ok.tick() == Status::Running);
+  CHECK(calls == 1);
+  CHECK(ok.tick() == Status::Running);
+  CHECK(calls == 2);
+  CHECK(ok.tick() == Status::Success);
   CHECK(ok.result().value() == 3);
 
   calls = 0;
   beet::Runner fails{beet::retry<2>(flaky), 3};
-  fails.tick();
-  CHECK_FALSE(fails.result().has_value());
+  CHECK(fails.tick() == Status::Running);
+  CHECK(fails.tick() == Status::Failure);
   CHECK(calls == 2);
+
+  calls = 0;
+  beet::Runner first_try{beet::retry<5>(flaky), 1};
+  CHECK(first_try.tick() == Status::Success);
+  CHECK(calls == 1);
 }
 
-TEST_CASE("repeat runs a node several times and stops at the first failure") {
+TEST_CASE("repeat runs a node once per tick and stops at the first failure") {
   int calls = 0;
   auto counter = beet::node([&calls](int limit) -> Result<int, Flaky> {
     if (++calls > limit) {
@@ -51,14 +61,28 @@ TEST_CASE("repeat runs a node several times and stops at the first failure") {
   });
 
   beet::Runner ok{beet::repeat<3>(counter), 10};
-  ok.tick();
+  CHECK(ok.tick() == Status::Running);
+  CHECK(calls == 1);
+  CHECK(ok.tick() == Status::Running);
+  CHECK(calls == 2);
+  CHECK(ok.tick() == Status::Success);
   CHECK(ok.result().value() == 3);
 
   calls = 0;
   beet::Runner fails{beet::repeat<5>(counter), 2};
-  fails.tick();
-  CHECK_FALSE(fails.result().has_value());
+  CHECK(fails.tick() == Status::Running);
+  CHECK(fails.tick() == Status::Running);
+  CHECK(fails.tick() == Status::Failure);
   CHECK(calls == 3);
+}
+
+TEST_CASE(
+    "repeat starts the next run on the tick after a long child finishes") {
+  beet::Runner runner{beet::repeat<2>(takes_ticks), 2};
+  CHECK(runner.tick() == Status::Running);
+  CHECK(runner.tick() == Status::Running);
+  CHECK(runner.tick() == Status::Running);
+  CHECK(runner.tick() == Status::Success);
 }
 
 TEST_CASE("timeout_ticks fails with Timeout and adds it to the error set") {
