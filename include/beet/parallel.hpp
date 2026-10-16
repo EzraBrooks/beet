@@ -64,7 +64,6 @@ inline constexpr std::string_view parallel_kind<any_policy> = "parallel_any";
 template <class Impl, class... Cs>
 struct runner_set {
   std::tuple<TaskRunner<result_t<Cs>>...> runners;
-  std::array<runner_base*, sizeof...(Cs)> ptrs;
 
   template <class In, class Trace>
   runner_set(const std::tuple<Cs...>& children, const In& in, Trace trace)
@@ -74,11 +73,12 @@ struct runner_set {
   runner_set(const std::tuple<Cs...>& children, const In& in, Trace trace,
              std::index_sequence<I...> /*unused*/)
       : runners(std::get<I>(children).run(feed<Cs>(in),
-                                          child_trace<Impl, I>(trace))...),
-        ptrs{&std::get<I>(runners)...} {}
+                                          child_trace<Impl, I>(trace))...) {}
 };
 
-template <class Policy, class... Cs>
+/// `Exec` is the executor's concrete type, so its `bulk` call is direct and
+/// `InlineExecutor` needs no indirection at all.
+template <class Policy, class Exec, class... Cs>
 struct parallel_impl {
   static constexpr std::string_view kind = parallel_kind<Policy>;
   using children = type_list<Cs...>;
@@ -89,19 +89,33 @@ struct parallel_impl {
   static constexpr std::size_t count = sizeof...(Cs);
 
   std::tuple<Cs...> nodes;
-  Executor* executor;
+  Exec* executor;
 
   template <class Trace>
   Task<R> run(In in, Trace trace) const {
     runner_set<parallel_impl, Cs...> set(nodes, in, trace);
     for (;;) {
-      executor->bulk(count,
-                     [&set](std::size_t index) { set.ptrs[index]->tick(); });
+      tick_all(set.runners);
       if (auto outcome =
               decide(set.runners, Policy{}, std::index_sequence_for<Cs...>{})) {
         co_return std::move(*outcome);
       }
       co_await running;
+    }
+  }
+
+  template <class Runners>
+  void tick_all(Runners& runners) const {
+    if constexpr (std::is_same_v<Exec, InlineExecutor>) {
+      std::apply([](auto&... each) { ((void)each.tick(), ...); }, runners);
+    } else {
+      const auto ptrs = std::apply(
+          [](auto&... each) {
+            return std::array<runner_base*, count>{&each...};
+          },
+          runners);
+      executor->bulk(count,
+                     [&ptrs](std::size_t index) { ptrs[index]->tick(); });
     }
   }
 
@@ -172,11 +186,11 @@ struct parallel_impl {
   }
 };
 
-template <class Policy, class... Ns>
-auto make_parallel(Executor& executor, Ns... children) {
+template <class Policy, class Exec, class... Ns>
+auto make_parallel(Exec& executor, Ns... children) {
   static_assert(sizeof...(Ns) >= 1,
                 "beet: parallel nodes need at least one child");
-  using I = parallel_impl<Policy, Ns...>;
+  using I = parallel_impl<Policy, Exec, Ns...>;
   static_assert(
       ((accepts_any_input_v<Ns> ||
         std::constructible_from<input_t<Ns>, const typename I::In&>) &&
@@ -193,8 +207,8 @@ concept not_executor = !std::derived_from<std::remove_cvref_t<T>, Executor>;
 
 /// Ticks all children every tick. Succeeds with a tuple of their outputs once
 /// all succeed; fails with the first failure (lowest index) and halts the rest.
-template <class... Cs>
-auto parallel_all(Executor& executor, Cs... children) {
+template <std::derived_from<Executor> E, class... Cs>
+auto parallel_all(E& executor, Cs... children) {
   return detail::make_parallel<detail::all_policy>(
       executor, node(std::move(children))...);
 }
@@ -206,8 +220,8 @@ auto parallel_all(C first, Cs... rest) {
 /// Succeeds with the first child to succeed (lowest index on ties), as a
 /// variant indexed by child, and halts the rest. Fails with the last child's
 /// error once every child has failed.
-template <class... Cs>
-auto parallel_any(Executor& executor, Cs... children) {
+template <std::derived_from<Executor> E, class... Cs>
+auto parallel_any(E& executor, Cs... children) {
   return detail::make_parallel<detail::any_policy>(
       executor, node(std::move(children))...);
 }
@@ -219,8 +233,8 @@ auto parallel_any(C first, Cs... rest) {
 /// Succeeds once at least `K` children succeed, with each child's output if it
 /// succeeded. Fails once success becomes impossible, with the highest-index
 /// failure, and halts the rest.
-template <std::size_t K, class... Cs>
-auto parallel_n(Executor& executor, Cs... children) {
+template <std::size_t K, std::derived_from<Executor> E, class... Cs>
+auto parallel_n(E& executor, Cs... children) {
   return detail::make_parallel<detail::at_least_policy<K>>(
       executor, node(std::move(children))...);
 }
