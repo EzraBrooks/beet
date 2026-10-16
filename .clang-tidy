@@ -1,4 +1,4 @@
-# The analyzer and optional-access checks cannot follow coroutine resumption, so they misreport
+# The analyzer checks cannot follow coroutine resumption, so they misreport
 # state that the parent task establishes before resuming a child.
 # convert-member-functions-to-static would make awaiter members and members whose body differs across
 # #if branches static, which breaks the coroutine protocol or the other branch.
@@ -11,14 +11,12 @@ Checks: >
   modernize-*,
   performance-*,
   readability-*,
-  -bugprone-easily-swappable-parameters,
-  -bugprone-exception-escape,
-  -bugprone-unchecked-optional-access,
   -clang-analyzer-core.uninitialized.Branch,
   -clang-analyzer-deadcode.DeadStores,
   -modernize-use-trailing-return-type,
   -readability-convert-member-functions-to-static,
 CheckOptions:
+  bugprone-exception-escape.IgnoredExceptions: 'bad_alloc,bad_array_new_length,length_error'
   readability-identifier-length.IgnoredVariableNames: '^(in|id|ok|fn|ch|at|no|ex)$'
   readability-identifier-length.IgnoredParameterNames: '^(in|id|ok|fn|ch|at|no|ex)$'
 WarningsAsErrors: '*'

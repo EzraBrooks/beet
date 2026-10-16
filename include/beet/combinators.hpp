@@ -64,9 +64,11 @@ struct sequence_impl {
     std::tuple<std::optional<In>, std::optional<output_t<Cs>>...> values;
     std::get<0>(values).emplace(std::move(in));
     ((void)std::get<I + 1>(values).emplace(co_await std::get<I>(nodes).run(
+         // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
          feed<child_t<I>>(std::move(*std::get<I>(values))),
          child_trace<sequence_impl, I>(trace))),
      ...);
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     co_return std::move(*std::get<sizeof...(Cs)>(values));
   }
 };

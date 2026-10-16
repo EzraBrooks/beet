@@ -108,6 +108,7 @@ struct raw_awaiter {
     if (child.exception) {
       std::rethrow_exception(child.exception);
     }
+    assert(child.value && "beet: child task finished without a value");
     return std::move(*child.value);
   }
 };
@@ -149,6 +150,7 @@ struct try_awaiter {
     if (child.exception) {
       std::rethrow_exception(child.exception);
     }
+    assert(child.value && "beet: child task finished without a value");
     return std::move(**child.value);
   }
 };
@@ -283,9 +285,17 @@ class TaskRunner final : public runner_base {
   }
 
   [[nodiscard]] bool done() const { return task_.handle().promise().done(); }
-  T& result() { return *task_.handle().promise().value; }
+  T& result() {
+    auto& value = task_.handle().promise().value;
+    assert(value &&
+           "beet: TaskRunner::result() called before the task finished");
+    return *value;
+  }
   [[nodiscard]] const T& result() const {
-    return *task_.handle().promise().value;
+    const auto& value = task_.handle().promise().value;
+    assert(value &&
+           "beet: TaskRunner::result() called before the task finished");
+    return *value;
   }
 
  private:
