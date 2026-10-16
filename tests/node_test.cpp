@@ -19,18 +19,20 @@ using beet::unit;
 struct Bad {};
 struct Worse {};
 
-int twice(int x) noexcept { return x * 2; }
-Result<std::string, Bad> named(int x) noexcept {
-  if (x < 0) return beet::make_unexpected(Bad{});
-  return std::to_string(x);
+int twice(int value) noexcept { return value * 2; }
+Result<std::string, Bad> named(int value) noexcept {
+  if (value < 0) {
+    return beet::make_unexpected(Bad{});
+  }
+  return std::to_string(value);
 }
-Task<Result<double, Worse>> halve(int x) noexcept { co_return x / 2.0; }
+Task<Result<double, Worse>> halve(int value) noexcept { co_return value / 2.0; }
 
 auto n_plain = beet::node(twice);
 auto n_result = beet::node(named);
 auto n_task = beet::node(halve);
 auto n_void = beet::node([] {});
-auto n_generic = beet::node<int>([](auto x) { return x + 1; });
+auto n_generic = beet::node<int>([](auto value) { return value + 1; });
 auto n_function = beet::node(std::function<int(const int&)>(twice));
 
 static_assert(std::is_same_v<input_t<decltype(n_plain)>, int>);
@@ -46,10 +48,10 @@ static_assert(std::is_same_v<output_t<decltype(n_generic)>, int>);
 static_assert(std::is_same_v<input_t<decltype(n_function)>, int>);
 
 template <class N>
-auto run_once(const N& n, input_t<N> in) {
-  beet::Runner r{n, std::move(in)};
-  REQUIRE(r.tick() != Status::Running);
-  return r.result();
+auto run_once(const N& tree, input_t<N> in) {
+  beet::Runner runner{tree, std::move(in)};
+  REQUIRE(runner.tick() != Status::Running);
+  return runner.result();
 }
 
 }  // namespace
@@ -65,9 +67,9 @@ TEST_CASE("lifted callables run when ticked") {
 
 TEST_CASE("plain callables are deferred until the first tick") {
   int calls = 0;
-  beet::Runner r{beet::node([&calls] { ++calls; })};
+  beet::Runner runner{beet::node([&calls] { ++calls; })};
   CHECK(calls == 0);
-  r.tick();
+  runner.tick();
   CHECK(calls == 1);
 }
 

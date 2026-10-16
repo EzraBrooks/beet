@@ -84,18 +84,19 @@ using lift_of = lift_traits<std::remove_cvref_t<R>>;
 /// Converts any callable result (`Out`, `void`, or a `Result`) into
 /// `Result<Out, Err>`.
 template <class Out, class Err, class R>
-Result<Out, Err> to_result(R&& r) {
+Result<Out, Err> to_result(R&& result) {
   using V = std::remove_cvref_t<R>;
   if constexpr (is_result_v<V>) {
-    if (!r.has_value())
-      return make_unexpected(coerce<Err>(std::forward<R>(r).error()));
+    if (!result.has_value()) {
+      return make_unexpected(coerce<Err>(std::forward<R>(result).error()));
+    }
     if constexpr (std::is_void_v<typename V::value_type>) {
       return Out{};
     } else {
-      return coerce<Out>(*std::forward<R>(r));
+      return coerce<Out>(*std::forward<R>(result));
     }
   } else {
-    return coerce<Out>(std::forward<R>(r));
+    return coerce<Out>(std::forward<R>(result));
   }
 }
 
@@ -116,23 +117,23 @@ struct call_traits {
 };
 
 template <class F, class... Args>
-decltype(auto) invoke_value(const F& f, Args&&... args) {
+decltype(auto) invoke_value(const F& fn, Args&&... args) {
   if constexpr (std::is_void_v<std::invoke_result_t<const F&, Args&&...>>) {
-    std::invoke(f, std::forward<Args>(args)...);
+    std::invoke(fn, std::forward<Args>(args)...);
     return unit{};
   } else {
-    return std::invoke(f, std::forward<Args>(args)...);
+    return std::invoke(fn, std::forward<Args>(args)...);
   }
 }
 
 template <class Out, class Err, bool Catch, class F, class... Args>
-Task<Result<Out, Err>> lazy_call(F f, Args... args) {
+Task<Result<Out, Err>> lazy_call(F fn, Args... args) {
 #if BEET_EXCEPTIONS
   if constexpr (Catch) {
     std::exception_ptr caught;
     try {
       co_return to_result<Out, Err>(
-          invoke_value(std::as_const(f), std::move(args)...));
+          invoke_value(std::as_const(fn), std::move(args)...));
     } catch (...) {
       caught = std::current_exception();
     }
@@ -140,41 +141,41 @@ Task<Result<Out, Err>> lazy_call(F f, Args... args) {
   }
 #endif
   co_return to_result<Out, Err>(
-      invoke_value(std::as_const(f), std::move(args)...));
+      invoke_value(std::as_const(fn), std::move(args)...));
 }
 
 /// Runs a coroutine callable, returning anything it throws as `Exception`.
 template <class Out, class Err, class F, class... Args>
-Task<Result<Out, Err>> catching_task(const F& f, Args... args) {
+Task<Result<Out, Err>> catching_task(const F& fn, Args... args) {
 #if BEET_EXCEPTIONS
   std::exception_ptr caught;
   try {
     co_return to_result<Out, Err>(
-        co_await settle(std::invoke(std::as_const(f), std::move(args)...)));
+        co_await settle(std::invoke(std::as_const(fn), std::move(args)...)));
   } catch (...) {
     caught = std::current_exception();
   }
   co_return make_unexpected(coerce<Err>(Exception{caught}));
 #else
   co_return to_result<Out, Err>(
-      co_await settle(std::invoke(std::as_const(f), std::move(args)...)));
+      co_await settle(std::invoke(std::as_const(fn), std::move(args)...)));
 #endif
 }
 
-/// Invokes `f` as a node body. Plain callables are deferred into a task so they
-/// run when first ticked.
+/// Invokes `fn` as a node body. Plain callables are deferred into a task so
+/// they run when first ticked.
 template <class F, class... Args>
-auto call(const F& f, Args&&... args) {
+auto call(const F& fn, Args&&... args) {
   using C = call_traits<F, Args&&...>;
   constexpr bool catches = may_throw_v<F, Args&&...>;
   if constexpr (C::lifted::is_task && !catches) {
-    return std::invoke(f, std::forward<Args>(args)...);
+    return std::invoke(fn, std::forward<Args>(args)...);
   } else if constexpr (C::lifted::is_task) {
     return catching_task<typename C::out, typename C::err>(
-        f, std::decay_t<Args>(std::forward<Args>(args))...);
+        fn, std::decay_t<Args>(std::forward<Args>(args))...);
   } else {
     return lazy_call<typename C::out, typename C::err, catches>(
-        f, std::decay_t<Args>(std::forward<Args>(args))...);
+        fn, std::decay_t<Args>(std::forward<Args>(args))...);
   }
 }
 
@@ -194,7 +195,7 @@ Task<Result<Out, Err>> adapt(Task<R> task) {
 }
 
 template <class In, class Out, class Err, class N>
-std::function<Task<Result<Out, Err>>(In)> erase(N n) {
+std::function<Task<Result<Out, Err>>(In)> erase(N child) {
   static_assert(
       std::is_same_v<input_t<N>, unit> ||
           std::constructible_from<input_t<N>, In>,
@@ -204,10 +205,10 @@ std::function<Task<Result<Out, Err>>(In)> erase(N n) {
       "beet: AnyNode error set does not cover the wrapped node's errors");
   if constexpr (std::is_same_v<input_t<N>, In> &&
                 std::is_same_v<result_t<N>, Result<Out, Err>>) {
-    return [n = std::move(n)](In in) { return n(std::move(in)); };
+    return [child = std::move(child)](In in) { return child(std::move(in)); };
   } else {
-    return [n = std::move(n)](In in) {
-      return adapt<Out, Err>(n(feed<N>(std::move(in))));
+    return [child = std::move(child)](In in) {
+      return adapt<Out, Err>(child(feed<N>(std::move(in))));
     };
   }
 }
@@ -219,7 +220,7 @@ struct lift_impl {
   F f;
 
   template <class Trace>
-  auto run(In in, Trace) const {
+  auto run(In in, Trace /*unused*/) const {
     if constexpr (std::is_invocable_v<const F&, In>) {
       return call(f, std::move(in));
     } else {
@@ -285,7 +286,9 @@ struct child_offset<Impl, I, type_list<Cs...>> {
   static constexpr std::size_t value = [] {
     constexpr std::size_t sizes[] = {subtree_size<Cs>::value..., 0};
     std::size_t offset = 1;
-    for (std::size_t j = 0; j < I; ++j) offset += sizes[j];
+    for (std::size_t j = 0; j < I; ++j) {
+      offset += sizes[j];
+    }
     return offset;
   }();
 };
@@ -354,16 +357,17 @@ using AnyNode = Node<std::function<Task<Result<Out, Err>>(In)>, In, Out, Err>;
 /// Lifts a callable into a node with an explicit input type. Use this for
 /// generic lambdas.
 template <class In, class F>
-auto node(F f) {
+auto node(F fn) {
   if constexpr (node_type<F>) {
     static_assert(std::is_same_v<input_t<F>, In>,
                   "beet: node<In>() given a node with a different input type");
-    return f;
+    return fn;
   } else {
     using Impl = detail::lift_impl<F, In>;
     using L = detail::lift_of<decltype(std::declval<const Impl&>().run(
         std::declval<In>(), detail::untraced{}))>;
-    return Node<Impl, In, typename L::out, typename L::err>(Impl{std::move(f)});
+    return Node<Impl, In, typename L::out, typename L::err>(
+        Impl{std::move(fn)});
   }
 }
 
@@ -371,11 +375,11 @@ auto node(F f) {
 /// E>>(In)` into a node. Callables taking no argument get `unit` input. Nodes
 /// are returned unchanged.
 template <class F>
-auto node(F f) {
+auto node(F fn) {
   if constexpr (node_type<F>) {
-    return f;
+    return fn;
   } else {
-    return node<detail::callable_input_t<F>>(std::move(f));
+    return node<detail::callable_input_t<F>>(std::move(fn));
   }
 }
 

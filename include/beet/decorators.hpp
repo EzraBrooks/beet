@@ -38,9 +38,11 @@ struct retry_impl {
   template <class Trace>
   Task<result_t<N>> run(input_t<N> in, Trace trace) const {
     for (std::size_t i = 1;; ++i) {
-      auto r =
+      auto result =
           co_await settle(inner.run(in, child_trace<retry_impl, 0>(trace)));
-      if (r || i >= attempts) co_return std::move(r);
+      if (result || i >= attempts) {
+        co_return std::move(result);
+      }
     }
   }
 };
@@ -57,7 +59,9 @@ struct repeat_impl {
   Task<result_t<N>> run(input_t<N> in, Trace trace) const {
     for (std::size_t i = 1;; ++i) {
       auto value = co_await inner.run(in, child_trace<repeat_impl, 0>(trace));
-      if (i >= times) co_return std::move(value);
+      if (i >= times) {
+        co_return std::move(value);
+      }
     }
   }
 };
@@ -75,34 +79,39 @@ struct timeout_impl {
   Task<Result<output_t<N>, Err>> run(input_t<N> in, Trace trace) const {
     TaskRunner<result_t<N>> child(
         inner.run(std::move(in), child_trace<timeout_impl, 0>(trace)));
-    for (std::size_t t = 1;; ++t) {
-      if (child.tick() != Status::Running)
+    for (std::size_t tick = 1;; ++tick) {
+      if (child.tick() != Status::Running) {
         co_return to_result<output_t<N>, Err>(std::move(child.result()));
-      if (t >= ticks) co_return make_unexpected(coerce<Err>(Timeout{ticks}));
+      }
+      if (tick >= ticks) {
+        co_return make_unexpected(coerce<Err>(Timeout{ticks}));
+      }
       co_await running;
     }
   }
 };
 
-inline std::size_t at_least_one(std::size_t n, const char* what) {
+inline std::size_t at_least_one(std::size_t count, const char* what) {
 #if BEET_EXCEPTIONS
-  if (n == 0) throw std::invalid_argument(what);
+  if (count == 0) {
+    throw std::invalid_argument(what);
+  }
 #else
-  if (n == 0) {
+  if (count == 0) {
     std::fputs(what, stderr);
     std::abort();
   }
 #endif
-  return n;
+  return count;
 }
 
 }  // namespace detail
 
-/// Re-runs `n` on the same input until it succeeds, up to `attempts` times.
+/// Re-runs `child` on the same input until it succeeds, up to `attempts` times.
 /// Fails with the last error.
 template <class N>
-auto retry(std::size_t attempts, N n) {
-  auto inner = node(std::move(n));
+auto retry(std::size_t attempts, N child) {
+  auto inner = node(std::move(child));
   using I = detail::retry_impl<decltype(inner)>;
   return Node<I, input_t<decltype(inner)>, output_t<decltype(inner)>,
               error_t<decltype(inner)>>(
@@ -111,11 +120,11 @@ auto retry(std::size_t attempts, N n) {
                              "beet::retry: attempts must be at least 1")});
 }
 
-/// Runs `n` on the same input `times` times in a row, stopping at the first
+/// Runs `child` on the same input `times` times in a row, stopping at the first
 /// failure. Yields the last output.
 template <class N>
-auto repeat(std::size_t times, N n) {
-  auto inner = node(std::move(n));
+auto repeat(std::size_t times, N child) {
+  auto inner = node(std::move(child));
   using I = detail::repeat_impl<decltype(inner)>;
   return Node<I, input_t<decltype(inner)>, output_t<decltype(inner)>,
               error_t<decltype(inner)>>(
@@ -123,11 +132,11 @@ auto repeat(std::size_t times, N n) {
         detail::at_least_one(times, "beet::repeat: times must be at least 1")});
 }
 
-/// Fails with `Timeout` and halts `n` if it is still running after `ticks`
+/// Fails with `Timeout` and halts `child` if it is still running after `ticks`
 /// ticks.
 template <class N>
-auto timeout_ticks(std::size_t ticks, N n) {
-  auto inner = node(std::move(n));
+auto timeout_ticks(std::size_t ticks, N child) {
+  auto inner = node(std::move(child));
   using I = detail::timeout_impl<decltype(inner)>;
   return Node<I, input_t<decltype(inner)>, output_t<decltype(inner)>,
               typename I::Err>(
@@ -147,7 +156,9 @@ auto condition(Pred pred) {
                                                  std::declval<const T&>()))) &&
               std::is_nothrow_move_constructible_v<T>)
           -> Result<T, ConditionFailed> {
-        if (std::invoke(pred, std::as_const(value))) return value;
+        if (std::invoke(pred, std::as_const(value))) {
+          return value;
+        }
         return make_unexpected(ConditionFailed{});
       });
 }

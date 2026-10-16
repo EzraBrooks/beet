@@ -32,8 +32,8 @@ Status tick_until_done(R& runner) {
 }  // namespace
 
 TEST_CASE("offload runs a function off the tick and yields its result") {
-  auto tree = beet::sequence(beet::offload([](int x) { return x * 2; }),
-                             [](int x) { return x + 1; });
+  auto tree = beet::sequence(beet::offload([](int value) { return value * 2; }),
+                             [](int value) { return value + 1; });
   static_assert(std::is_same_v<beet::input_t<decltype(tree)>, int>);
   static_assert(std::is_same_v<beet::error_t<decltype(tree)>, beet::Exception>);
 
@@ -61,13 +61,15 @@ TEST_CASE("offload propagates typed errors and exceptions") {
 TEST_CASE("offload keeps ticking while the job is still working") {
   std::promise<void> release;
   auto gate = release.get_future().share();
-  beet::Runner runner{beet::offload([gate](int x) {
+  beet::Runner runner{beet::offload([gate](int value) {
                         gate.wait();
-                        return x;
+                        return value;
                       }),
                       5};
 
-  for (int i = 0; i < 10; ++i) CHECK(runner.tick() == Status::Running);
+  for (int i = 0; i < 10; ++i) {
+    CHECK(runner.tick() == Status::Running);
+  }
   release.set_value();
   CHECK(tick_until_done(runner) == Status::Success);
   CHECK(runner.result().value() == 5);
@@ -76,8 +78,9 @@ TEST_CASE("offload keeps ticking while the job is still working") {
 TEST_CASE("halting an offloaded job requests a stop") {
   auto stopped = std::make_shared<std::atomic<bool>>(false);
   beet::Runner runner{beet::offload([stopped](int, std::stop_token stop) {
-                        while (!stop.stop_requested())
+                        while (!stop.stop_requested()) {
                           std::this_thread::yield();
+                        }
                         stopped->store(true);
                         return 0;
                       }),
@@ -87,7 +90,8 @@ TEST_CASE("halting an offloaded job requests a stop") {
   runner.halt();
   const auto deadline =
       std::chrono::steady_clock::now() + std::chrono::seconds(5);
-  while (!stopped->load() && std::chrono::steady_clock::now() < deadline)
+  while (!stopped->load() && std::chrono::steady_clock::now() < deadline) {
     std::this_thread::yield();
+  }
   CHECK(stopped->load());
 }

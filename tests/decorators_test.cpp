@@ -15,9 +15,11 @@ using beet::Task;
 
 struct Flaky {};
 
-Task<Result<int, never>> takes_ticks(int n) noexcept {
-  for (int i = 1; i < n; ++i) co_await beet::running;
-  co_return n;
+Task<Result<int, never>> takes_ticks(int ticks) noexcept {
+  for (int i = 1; i < ticks; ++i) {
+    co_await beet::running;
+  }
+  co_return ticks;
 }
 
 }  // namespace
@@ -25,7 +27,9 @@ Task<Result<int, never>> takes_ticks(int n) noexcept {
 TEST_CASE("retry re-runs a failing node up to the attempt limit") {
   int calls = 0;
   auto flaky = beet::node([&calls](int succeed_on) -> Result<int, Flaky> {
-    if (++calls < succeed_on) return beet::make_unexpected(Flaky{});
+    if (++calls < succeed_on) {
+      return beet::make_unexpected(Flaky{});
+    }
     return calls;
   });
 
@@ -45,7 +49,9 @@ TEST_CASE("retry re-runs a failing node up to the attempt limit") {
 TEST_CASE("repeat runs a node several times and stops at the first failure") {
   int calls = 0;
   auto counter = beet::node([&calls](int limit) -> Result<int, Flaky> {
-    if (++calls > limit) return beet::make_unexpected(Flaky{});
+    if (++calls > limit) {
+      return beet::make_unexpected(Flaky{});
+    }
     return calls;
   });
 
@@ -77,12 +83,13 @@ TEST_CASE("timeout_ticks fails with Timeout and adds it to the error set") {
 }
 
 TEST_CASE("condition passes its input through or fails") {
-  auto positive = beet::condition([](int x) noexcept { return x > 0; });
+  auto positive = beet::condition([](int value) noexcept { return value > 0; });
   static_assert(std::is_same_v<input_t<decltype(positive)>, int>);
   static_assert(
       std::is_same_v<beet::error_t<decltype(positive)>, beet::ConditionFailed>);
 
-  auto tree = beet::sequence(positive, [](int x) noexcept { return x * 10; });
+  auto tree =
+      beet::sequence(positive, [](int value) noexcept { return value * 10; });
   beet::Runner yes{tree, 4};
   yes.tick();
   CHECK(yes.result().value() == 40);

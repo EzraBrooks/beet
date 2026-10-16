@@ -8,21 +8,24 @@ namespace {
 
 struct Bad {};
 
-beet::Result<int, Bad> check(int x) {
-  if (x < 0) return beet::make_unexpected(Bad{});
-  return x;
+beet::Result<int, Bad> check(int value) {
+  if (value < 0) {
+    return beet::make_unexpected(Bad{});
+  }
+  return value;
 }
 
-beet::Task<beet::Result<int, beet::never>> slow(int x) {
+beet::Task<beet::Result<int, beet::never>> slow(int value) {
   co_await beet::running;
-  co_return x + 1;
+  co_return value + 1;
 }
 
 }  // namespace
 
 int main() {
   auto tree = beet::recover(
-      beet::sequence(check, slow, [](int x) { return std::to_string(x); }),
+      beet::sequence(check, slow,
+                     [](int value) { return std::to_string(value); }),
       [](Bad) { return std::string("bad"); });
   static_assert(std::is_same_v<beet::error_t<decltype(tree)>, beet::never>);
 

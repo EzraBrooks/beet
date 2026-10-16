@@ -29,7 +29,7 @@ struct Call {
 template <class Req, class Reply>
 class Channel {
   struct exchange {
-    explicit exchange(Req v) : value(std::move(v)) {}
+    explicit exchange(Req request) : value(std::move(request)) {}
 
     std::mutex mutex;
     Req value;
@@ -55,9 +55,9 @@ class Channel {
       return ex_->cancelled;
     }
 
-    void reply(Reply r) {
+    void reply(Reply value) {
       std::lock_guard lock(ex_->mutex);
-      ex_->reply.emplace(std::move(r));
+      ex_->reply.emplace(std::move(value));
     }
 
    private:
@@ -75,7 +75,9 @@ class Channel {
       auto ex = std::move(state_->queue.front());
       state_->queue.pop_front();
       std::lock_guard ex_lock(ex->mutex);
-      if (!ex->cancelled) return Request(std::move(ex));
+      if (!ex->cancelled) {
+        return Request(std::move(ex));
+      }
     }
     return std::nullopt;
   }
@@ -87,11 +89,11 @@ class Channel {
     using Out = typename L::out;
     using Err = typename L::err;
     return node<Call<Req, Reply>>(
-        [](Call<Req, Reply> c) -> Task<Result<Out, Err>> {
-          auto ex = std::make_shared<exchange>(std::move(c.request));
+        [](Call<Req, Reply> input) -> Task<Result<Out, Err>> {
+          auto ex = std::make_shared<exchange>(std::move(input.request));
           {
-            std::lock_guard lock(c.channel.state_->mutex);
-            c.channel.state_->queue.push_back(ex);
+            std::lock_guard lock(input.channel.state_->mutex);
+            input.channel.state_->queue.push_back(ex);
           }
 
           struct cancel_on_exit {
@@ -105,8 +107,9 @@ class Channel {
           for (;;) {
             {
               std::lock_guard lock(ex->mutex);
-              if (ex->reply)
+              if (ex->reply) {
                 co_return detail::to_result<Out, Err>(std::move(*ex->reply));
+              }
             }
             co_await running;
           }

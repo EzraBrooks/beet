@@ -57,8 +57,10 @@ struct promise_base {
   std::coroutine_handle<> (*propagate)(promise_base& self) noexcept = nullptr;
 
   std::coroutine_handle<> on_final() noexcept {
-    if (propagate) {
-      if (auto next = propagate(*this)) return next;
+    if (propagate != nullptr) {
+      if (auto next = propagate(*this)) {
+        return next;
+      }
     }
     return continuation ? continuation : std::noop_coroutine();
   }
@@ -69,8 +71,9 @@ struct promise_base {
 struct final_awaiter {
   bool await_ready() const noexcept { return false; }
   template <class P>
-  std::coroutine_handle<> await_suspend(std::coroutine_handle<P> h) noexcept {
-    return h.promise().on_final();
+  std::coroutine_handle<> await_suspend(
+      std::coroutine_handle<P> handle) noexcept {
+    return handle.promise().on_final();
   }
   void await_resume() const noexcept {}
 };
@@ -79,9 +82,9 @@ struct running_awaiter {
   promise_base* self;
 
   bool await_ready() const noexcept { return false; }
-  void await_suspend(std::coroutine_handle<> h) const noexcept {
+  void await_suspend(std::coroutine_handle<> caller) const noexcept {
     assert(self->ctx && "beet::running awaited outside of a Runner");
-    self->ctx->leaf = h;
+    self->ctx->leaf = caller;
   }
   void await_resume() const noexcept {}
 };
@@ -92,15 +95,18 @@ struct raw_awaiter {
   promise_base* parent;
 
   bool await_ready() const noexcept { return false; }
-  std::coroutine_handle<> await_suspend(std::coroutine_handle<> h) noexcept {
+  std::coroutine_handle<> await_suspend(
+      std::coroutine_handle<> caller) noexcept {
     auto& child = task.handle().promise();
     child.ctx = parent->ctx;
-    child.continuation = h;
+    child.continuation = caller;
     return task.handle();
   }
   U await_resume() {
     auto& child = task.handle().promise();
-    if (child.exception) std::rethrow_exception(child.exception);
+    if (child.exception) {
+      std::rethrow_exception(child.exception);
+    }
     return std::move(*child.value);
   }
 };
@@ -118,7 +124,9 @@ struct try_awaiter {
 
   static std::coroutine_handle<> propagate(promise_base& self) noexcept {
     auto& child = static_cast<promise<U>&>(self);
-    if (!child.value || child.value->has_value()) return {};
+    if (!child.value || child.value->has_value()) {
+      return {};
+    }
     auto& outer = static_cast<promise<T>&>(*child.propagate_to);
     outer.value.emplace(unexpect, coerce<typename T::error_type>(
                                       std::move(child.value->error())));
@@ -126,17 +134,20 @@ struct try_awaiter {
   }
 
   bool await_ready() const noexcept { return false; }
-  std::coroutine_handle<> await_suspend(std::coroutine_handle<> h) noexcept {
+  std::coroutine_handle<> await_suspend(
+      std::coroutine_handle<> caller) noexcept {
     auto& child = task.handle().promise();
     child.ctx = parent->ctx;
-    child.continuation = h;
+    child.continuation = caller;
     child.propagate_to = parent;
     child.propagate = &propagate;
     return task.handle();
   }
   typename U::value_type await_resume() {
     auto& child = task.handle().promise();
-    if (child.exception) std::rethrow_exception(child.exception);
+    if (child.exception) {
+      std::rethrow_exception(child.exception);
+    }
     return std::move(**child.value);
   }
 };
@@ -151,15 +162,17 @@ struct promise final : promise_base {
 
   template <class V = T>
     requires std::constructible_from<T, V&&>
-  void return_value(V&& v) {
-    value.emplace(std::forward<V>(v));
+  void return_value(V&& result) {
+    value.emplace(std::forward<V>(result));
   }
 
-  running_awaiter await_transform(running_t) noexcept { return {this}; }
+  running_awaiter await_transform(running_t /*unused*/) noexcept {
+    return {this};
+  }
 
   template <class U>
-  raw_awaiter<U> await_transform(settle_t<U>&& s) noexcept {
-    return {std::move(s.task), this};
+  raw_awaiter<U> await_transform(settle_t<U>&& settled) noexcept {
+    return {std::move(settled.task), this};
   }
 
   template <class U>
@@ -187,7 +200,9 @@ class [[nodiscard]] Task {
   Task(Task&& other) noexcept : handle_(std::exchange(other.handle_, {})) {}
   Task& operator=(Task&& other) noexcept {
     if (this != &other) {
-      if (handle_) handle_.destroy();
+      if (handle_) {
+        handle_.destroy();
+      }
       handle_ = std::exchange(other.handle_, {});
     }
     return *this;
@@ -195,7 +210,9 @@ class [[nodiscard]] Task {
   Task(const Task&) = delete;
   Task& operator=(const Task&) = delete;
   ~Task() {
-    if (handle_) handle_.destroy();
+    if (handle_) {
+      handle_.destroy();
+    }
   }
 
   std::coroutine_handle<promise_type> handle() const noexcept {
@@ -204,7 +221,8 @@ class [[nodiscard]] Task {
 
  private:
   friend promise_type;
-  explicit Task(std::coroutine_handle<promise_type> h) noexcept : handle_(h) {}
+  explicit Task(std::coroutine_handle<promise_type> handle) noexcept
+      : handle_(handle) {}
 
   std::coroutine_handle<promise_type> handle_;
 };
@@ -230,26 +248,30 @@ class TaskRunner final : public runner_base {
   TaskRunner& operator=(const TaskRunner&) = delete;
 
   Status tick() override {
-    auto& p = task_.handle().promise();
-    if (!p.done()) {
+    auto& state = task_.handle().promise();
+    if (!state.done()) {
       if (!started_) {
         started_ = true;
-        p.ctx = &ctx_;
+        state.ctx = &ctx_;
         task_.handle().resume();
       } else {
         assert(ctx_.leaf && "beet: unfinished task has no suspended leaf");
         std::exchange(ctx_.leaf, {}).resume();
       }
     }
-    if (p.exception) std::rethrow_exception(p.exception);
+    if (state.exception) {
+      std::rethrow_exception(state.exception);
+    }
     return status();
   }
 
   Status status() const {
-    const auto& p = task_.handle().promise();
-    if (!p.value) return started_ ? Status::Running : Status::Idle;
+    const auto& state = task_.handle().promise();
+    if (!state.value) {
+      return started_ ? Status::Running : Status::Idle;
+    }
     if constexpr (is_result_v<T>) {
-      return p.value->has_value() ? Status::Success : Status::Failure;
+      return state.value->has_value() ? Status::Success : Status::Failure;
     } else {
       return Status::Success;
     }

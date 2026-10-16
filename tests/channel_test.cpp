@@ -69,13 +69,15 @@ TEST_CASE(
     "finishes") {
   auto server = [](Doubler ch) -> Task<Result<never, never>> {
     for (;;) {
-      if (auto req = ch.try_receive()) req->reply(req->value() * 2);
+      if (auto req = ch.try_receive()) {
+        req->reply(req->value() * 2);
+      }
       co_await beet::running;
     }
   };
   auto client = beet::sequence(
       [](Doubler ch) { return beet::Call<int, Result<int, Bad>>{ch, 5}; },
-      Doubler::call(), [](int x) { return x + 1; });
+      Doubler::call(), [](int value) { return value + 1; });
 
   auto tree = beet::sequence([] { return Doubler{}; },
                              beet::parallel_any(client, server));
@@ -83,8 +85,9 @@ TEST_CASE(
 
   beet::Runner runner{tree};
   Status status = runner.tick();
-  for (int i = 0; status == Status::Running && i < 10; ++i)
+  for (int i = 0; status == Status::Running && i < 10; ++i) {
     status = runner.tick();
+  }
   REQUIRE(status == Status::Success);
   CHECK(std::get<0>(runner.result().value()) == 11);
 }
