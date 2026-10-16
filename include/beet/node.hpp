@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <concepts>
 #include <cstddef>
 #include <functional>
@@ -220,7 +221,7 @@ struct lift_impl {
   F f;
 
   template <class Trace>
-  auto run(In in, Trace /*unused*/) const {
+  [[nodiscard]] auto run(In in, Trace /*unused*/) const {
     if constexpr (std::is_invocable_v<const F&, In>) {
       return call(f, std::move(in));
     } else {
@@ -233,7 +234,7 @@ struct lift_impl {
 /// compiles to nothing.
 struct untraced {
   template <std::size_t Offset>
-  constexpr untraced child() const noexcept {
+  [[nodiscard]] constexpr untraced child() const noexcept {
     return {};
   }
 };
@@ -284,7 +285,8 @@ struct child_offset;
 template <class Impl, std::size_t I, class... Cs>
 struct child_offset<Impl, I, type_list<Cs...>> {
   static constexpr std::size_t value = [] {
-    constexpr std::size_t sizes[] = {subtree_size<Cs>::value..., 0};
+    constexpr std::array<std::size_t, sizeof...(Cs)> sizes{
+        subtree_size<Cs>::value...};
     std::size_t offset = 1;
     for (std::size_t j = 0; j < I; ++j) {
       offset += sizes[j];

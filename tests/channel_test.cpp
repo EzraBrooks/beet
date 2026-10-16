@@ -1,6 +1,7 @@
 #include <doctest/doctest.h>
 
 #include <optional>
+#include <utility>
 #include <variant>
 
 #include "beet/beet.hpp"
@@ -76,7 +77,10 @@ TEST_CASE(
     }
   };
   auto client = beet::sequence(
-      [](Doubler ch) { return beet::Call<int, Result<int, Bad>>{ch, 5}; },
+      [](Doubler ch) {
+        return beet::Call<int, Result<int, Bad>>{.channel = std::move(ch),
+                                                 .request = 5};
+      },
       Doubler::call(), [](int value) { return value + 1; });
 
   auto tree = beet::sequence([] { return Doubler{}; },

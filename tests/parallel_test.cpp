@@ -36,7 +36,7 @@ struct HaltProbe {
 /// Succeeds with `base + id` (or fails with Failed{id}) on its `ticks`-th tick.
 auto job(int id, int ticks, bool succeed = true, int* halted = nullptr) {
   return beet::node([=](int base) noexcept -> Task<Result<int, Failed>> {
-    HaltProbe probe{halted};
+    HaltProbe probe{.halted = halted};
     for (int i = 1; i < ticks; ++i) {
       co_await beet::running;
     }

@@ -39,7 +39,7 @@ struct Exception {
   std::exception_ptr ptr;
 
   /// The exception's `what()`, if it derives from `std::exception`.
-  std::string what() const {
+  [[nodiscard]] std::string what() const {
 #if BEET_EXCEPTIONS
     try {
       std::rethrow_exception(ptr);

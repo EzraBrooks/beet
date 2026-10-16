@@ -30,13 +30,13 @@ struct offload_input<type_list<A, std::stop_token>> {
 };
 
 template <class F, class In>
-decltype(auto) invoke_job(const F& fn, In&& in, std::stop_token stop) {
+decltype(auto) invoke_job(const F& fn, In&& in, const std::stop_token& stop) {
   if constexpr (std::is_invocable_v<const F&, In, std::stop_token>) {
-    return fn(std::forward<In>(in), std::move(stop));
+    return fn(std::forward<In>(in), stop);
   } else if constexpr (std::is_invocable_v<const F&, In>) {
     return fn(std::forward<In>(in));
   } else if constexpr (std::is_invocable_v<const F&, std::stop_token>) {
-    return fn(std::move(stop));
+    return fn(stop);
   } else {
     return fn();
   }

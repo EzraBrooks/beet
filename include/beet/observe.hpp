@@ -181,7 +181,7 @@ struct traced {
   std::uint32_t id;
 
   template <std::size_t Offset>
-  constexpr traced child() const noexcept {
+  [[nodiscard]] constexpr traced child() const noexcept {
     return {obs, static_cast<std::uint32_t>(id + Offset)};
   }
 
@@ -231,10 +231,10 @@ class StatusTable {
   }
   void on_halt(std::uint32_t id) { set(id, NodeStatus::Halted); }
 
-  NodeStatus status(std::uint32_t id) const {
+  [[nodiscard]] NodeStatus status(std::uint32_t id) const {
     return status_[id].load(std::memory_order_relaxed);
   }
-  std::uint64_t changed_at(std::uint32_t id) const {
+  [[nodiscard]] std::uint64_t changed_at(std::uint32_t id) const {
     return changed_[id].load(std::memory_order_relaxed);
   }
 
