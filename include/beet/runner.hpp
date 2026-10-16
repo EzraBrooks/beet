@@ -58,13 +58,16 @@ class Runner {
   /// status without re-running it.
   Status tick() {
     if constexpr (std::is_void_v<Obs>) {
-      if (!run_) run_.emplace(tree_(input_));
+      if (!run_) {
+        run_.emplace(tree_(input_));
+      }
       return run_->tick();
     } else {
       const std::uint64_t tick = slot_.ticks++;
       slot_.observer->on_tick_begin(tick);
-      if (!run_)
+      if (!run_) {
         run_.emplace(tree_.run(input_, detail::traced<Obs>{slot_.observer, 0}));
+      }
       const Status status = run_->tick();
       slot_.observer->on_tick_end(tick, status);
       return status;

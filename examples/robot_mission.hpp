@@ -44,23 +44,29 @@ struct LowBattery {
   int percent;
 };
 
-inline std::string describe(const PlanError& e) {
-  return "planning failed: " + e.why;
+inline constexpr double map_edge_y = 50;
+inline constexpr int start_charge = 70;
+inline constexpr int min_charge = 30;
+
+inline std::string describe(const PlanError& error) {
+  return "planning failed: " + error.why;
 }
-inline std::string describe(const Stuck& e) {
-  return "stuck at (" + std::to_string(e.where.x) + ", " +
-         std::to_string(e.where.y) + ")";
+inline std::string describe(const Stuck& error) {
+  return "stuck at (" + std::to_string(error.where.x) + ", " +
+         std::to_string(error.where.y) + ")";
 }
-inline std::string describe(const beet::Exception& e) {
-  return "unexpected exception: " + e.what();
+inline std::string describe(const beet::Exception& error) {
+  return "unexpected exception: " + error.what();
 }
 
 inline Result<Path, PlanError> plan_path(Pose goal) {
-  if (goal.x < 0)
+  if (goal.x < 0) {
     return beet::make_unexpected(PlanError{"goal is outside the map"});
+  }
   Path path;
-  for (int i = 1; i <= 4; ++i)
+  for (int i = 1; i <= 4; ++i) {
     path.waypoints.push_back({goal.x * i / 4, goal.y * i / 4});
+  }
   return path;
 }
 
@@ -69,7 +75,9 @@ inline Task<Result<Odom, Stuck>> drive(Path path) {
   Pose at;
   for (const Pose& next : path.waypoints) {
     co_await beet::running;
-    if (next.y > 50) co_return beet::make_unexpected(Stuck{at});
+    if (next.y > map_edge_y) {
+      co_return beet::make_unexpected(Stuck{at});
+    }
     odom.distance += std::hypot(next.x - at.x, next.y - at.y);
     at = next;
     std::printf("  drove to (%.1f, %.1f)\n", at.x, at.y);
@@ -80,14 +88,16 @@ inline Task<Result<Odom, Stuck>> drive(Path path) {
 // Each leg drains the battery in proportion to its length. Fails as soon as the
 // charge drops below 30%.
 inline Task<Result<Level, LowBattery>> watch_battery(Path path) {
-  int percent = 70;
+  int percent = start_charge;
   Pose at;
   for (const Pose& next : path.waypoints) {
     co_await beet::running;
     percent -=
         2 + static_cast<int>(std::hypot(next.x - at.x, next.y - at.y) / 2);
     at = next;
-    if (percent < 30) co_return beet::make_unexpected(LowBattery{percent});
+    if (percent < min_charge) {
+      co_return beet::make_unexpected(LowBattery{percent});
+    }
   }
   co_return Level{percent};
 }
@@ -99,11 +109,13 @@ inline Summary report(std::tuple<Odom, Level> done) {
 }
 
 inline auto make_mission() {
-  auto dock = [](LowBattery b) {
-    return Summary{"returned to dock at " + std::to_string(b.percent) +
+  auto dock = [](LowBattery low) {
+    return Summary{"returned to dock at " + std::to_string(low.percent) +
                    "% battery"};
   };
-  auto abort = [](const auto& e) noexcept { return Summary{describe(e)}; };
+  auto abort = [](const auto& error) noexcept {
+    return Summary{describe(error)};
+  };
 
   // clang-format off
   auto tree = beet::recover(

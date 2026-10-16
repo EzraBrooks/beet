@@ -30,15 +30,15 @@ struct offload_input<type_list<A, std::stop_token>> {
 };
 
 template <class F, class In>
-decltype(auto) invoke_job(const F& f, In&& in, std::stop_token stop) {
+decltype(auto) invoke_job(const F& fn, In&& in, std::stop_token stop) {
   if constexpr (std::is_invocable_v<const F&, In, std::stop_token>) {
-    return f(std::forward<In>(in), std::move(stop));
+    return fn(std::forward<In>(in), std::move(stop));
   } else if constexpr (std::is_invocable_v<const F&, In>) {
-    return f(std::forward<In>(in));
+    return fn(std::forward<In>(in));
   } else if constexpr (std::is_invocable_v<const F&, std::stop_token>) {
-    return f(std::move(stop));
+    return fn(std::move(stop));
   } else {
-    return f();
+    return fn();
   }
 }
 
@@ -99,8 +99,12 @@ auto offload(F fn) {
       ~stop_on_exit() { stop.request_stop(); }
     } guard{state->stop};
 
-    while (!state->done.load(std::memory_order_acquire)) co_await running;
-    if (state->exception) std::rethrow_exception(state->exception);
+    while (!state->done.load(std::memory_order_acquire)) {
+      co_await running;
+    }
+    if (state->exception) {
+      std::rethrow_exception(state->exception);
+    }
     co_return std::move(*state->value);
   });
 }

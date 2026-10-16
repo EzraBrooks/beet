@@ -15,24 +15,28 @@ using beet::Task;
 
 struct Bad {};
 
-int may_throw(int x) {
-  if (x < 0) throw std::runtime_error("negative");
-  return x;
+int may_throw(int value) {
+  if (value < 0) {
+    throw std::runtime_error("negative");
+  }
+  return value;
 }
-int cannot_throw(int x) noexcept { return x; }
+int cannot_throw(int value) noexcept { return value; }
 
-Task<Result<int, Bad>> throws_later(int x) {
+Task<Result<int, Bad>> throws_later(int value) {
   co_await beet::running;
-  if (x < 0) throw std::runtime_error("late");
-  co_return x;
+  if (value < 0) {
+    throw std::runtime_error("late");
+  }
+  co_return value;
 }
 
 template <class N>
-auto run(const N& n, beet::input_t<N> in) {
-  beet::Runner r{n, std::move(in)};
-  while (r.tick() == Status::Running) {
+auto run(const N& node, beet::input_t<N> in) {
+  beet::Runner runner{node, std::move(in)};
+  while (runner.tick() == Status::Running) {
   }
-  return r.result();
+  return runner.result();
 }
 
 }  // namespace
@@ -64,8 +68,8 @@ TEST_CASE("recover<Exception> handles thrown exceptions like any error") {
 }
 
 TEST_CASE("a recover handler that may throw adds Exception back") {
-  auto tree = beet::recover(may_throw, [](const Exception& e) -> int {
-    throw std::logic_error("handler saw " + e.what());
+  auto tree = beet::recover(may_throw, [](const Exception& error) -> int {
+    throw std::logic_error("handler saw " + error.what());
   });
   static_assert(std::is_same_v<beet::error_t<decltype(tree)>, Exception>);
   CHECK(run(tree, -3).error().what() == "handler saw negative");

@@ -17,18 +17,20 @@ class Executor {
  public:
   virtual ~Executor() = default;
 
-  /// Calls `fn(i)` for every `i` in `[0, n)` and returns once all calls have
-  /// finished. Rethrows the first exception thrown by any call.
-  virtual void bulk(std::size_t n,
+  /// Calls `fn(i)` for every `i` in `[0, count)` and returns once all calls
+  /// have finished. Rethrows the first exception thrown by any call.
+  virtual void bulk(std::size_t count,
                     const std::function<void(std::size_t)>& fn) = 0;
 };
 
 /// Ticks children one after another on the calling thread, in order.
 class InlineExecutor final : public Executor {
  public:
-  void bulk(std::size_t n,
+  void bulk(std::size_t count,
             const std::function<void(std::size_t)>& fn) override {
-    for (std::size_t i = 0; i < n; ++i) fn(i);
+    for (std::size_t i = 0; i < count; ++i) {
+      fn(i);
+    }
   }
 };
 
@@ -43,10 +45,11 @@ inline Executor& inline_executor() {
 class ThreadPoolExecutor final : public Executor {
  public:
   explicit ThreadPoolExecutor(
-      std::size_t threads = std::max(1u, std::thread::hardware_concurrency())) {
+      std::size_t threads = std::max(1U, std::thread::hardware_concurrency())) {
     workers_.reserve(threads);
-    for (std::size_t i = 0; i < threads; ++i)
+    for (std::size_t i = 0; i < threads; ++i) {
       workers_.emplace_back([this] { work(); });
+    }
   }
 
   ThreadPoolExecutor(const ThreadPoolExecutor&) = delete;
@@ -58,12 +61,16 @@ class ThreadPoolExecutor final : public Executor {
       stopping_ = true;
     }
     wake_.notify_all();
-    for (auto& worker : workers_) worker.join();
+    for (auto& worker : workers_) {
+      worker.join();
+    }
   }
 
-  void bulk(std::size_t n,
+  void bulk(std::size_t count,
             const std::function<void(std::size_t)>& fn) override {
-    if (n == 0) return;
+    if (count == 0) {
+      return;
+    }
 
     struct Batch {
       std::mutex mutex;
@@ -71,28 +78,33 @@ class ThreadPoolExecutor final : public Executor {
       std::size_t remaining = 0;
       std::exception_ptr error;
     } batch;
-    batch.remaining = n;
+    batch.remaining = count;
 
-    auto run = [&batch, &fn](std::size_t i) {
+    auto run = [&batch, &fn](std::size_t index) {
       std::exception_ptr error;
 #if defined(__cpp_exceptions) && !defined(BEET_NO_EXCEPTIONS)
       try {
-        fn(i);
+        fn(index);
       } catch (...) {
         error = std::current_exception();
       }
 #else
-      fn(i);
+      fn(index);
 #endif
       std::lock_guard lock(batch.mutex);
-      if (error && !batch.error) batch.error = error;
-      if (--batch.remaining == 0) batch.finished.notify_all();
+      if (error && !batch.error) {
+        batch.error = error;
+      }
+      if (--batch.remaining == 0) {
+        batch.finished.notify_all();
+      }
     };
 
     {
       std::lock_guard lock(mutex_);
-      for (std::size_t i = 1; i < n; ++i)
+      for (std::size_t i = 1; i < count; ++i) {
         jobs_.emplace_back([run, i] { run(i); });
+      }
     }
     wake_.notify_all();
     run(0);
@@ -100,7 +112,9 @@ class ThreadPoolExecutor final : public Executor {
     for (;;) {
       {
         std::lock_guard lock(batch.mutex);
-        if (batch.remaining == 0) break;
+        if (batch.remaining == 0) {
+          break;
+        }
       }
       if (auto job = try_pop()) {
         job();
@@ -111,13 +125,17 @@ class ThreadPoolExecutor final : public Executor {
       break;
     }
 
-    if (batch.error) std::rethrow_exception(batch.error);
+    if (batch.error) {
+      std::rethrow_exception(batch.error);
+    }
   }
 
  private:
   std::function<void()> try_pop() {
     std::lock_guard lock(mutex_);
-    if (jobs_.empty()) return {};
+    if (jobs_.empty()) {
+      return {};
+    }
     auto job = std::move(jobs_.front());
     jobs_.pop_front();
     return job;
@@ -129,7 +147,9 @@ class ThreadPoolExecutor final : public Executor {
       {
         std::unique_lock lock(mutex_);
         wake_.wait(lock, [this] { return stopping_ || !jobs_.empty(); });
-        if (stopping_ && jobs_.empty()) return;
+        if (stopping_ && jobs_.empty()) {
+          return;
+        }
         job = std::move(jobs_.front());
         jobs_.pop_front();
       }

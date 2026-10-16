@@ -15,20 +15,24 @@ struct Oops {
   std::string why;
 };
 
-Task<Result<int, beet::never>> count_ticks(int n) {
-  for (int i = 1; i < n; ++i) co_await beet::running;
-  co_return n;
+Task<Result<int, beet::never>> count_ticks(int ticks) {
+  for (int i = 1; i < ticks; ++i) {
+    co_await beet::running;
+  }
+  co_return ticks;
 }
 
-Task<Result<int, Oops>> fail_after(int n) {
-  for (int i = 1; i < n; ++i) co_await beet::running;
+Task<Result<int, Oops>> fail_after(int ticks) {
+  for (int i = 1; i < ticks; ++i) {
+    co_await beet::running;
+  }
   co_return beet::make_unexpected(Oops{"late"});
 }
 
 Task<Result<int, Oops>> sum_children() noexcept {
-  int a = co_await count_ticks(2);
-  int b = co_await fail_after(2);
-  co_return a + b + 1000;
+  int counted = co_await count_ticks(2);
+  int failed = co_await fail_after(2);
+  co_return counted + failed + 1000;
 }
 
 struct Flag {
@@ -38,7 +42,9 @@ struct Flag {
 
 Task<Result<int, beet::never>> forever(bool* destroyed) {
   Flag flag{destroyed};
-  for (;;) co_await beet::running;
+  for (;;) {
+    co_await beet::running;
+  }
 }
 
 Task<Result<int, Oops>> throws() noexcept {
@@ -49,59 +55,59 @@ Task<Result<int, Oops>> throws() noexcept {
 }  // namespace
 
 TEST_CASE("a coroutine node suspends on running and resumes on the next tick") {
-  beet::Runner r{beet::node(count_ticks), 3};
-  CHECK(r.status() == Status::Idle);
-  CHECK(r.tick() == Status::Running);
-  CHECK(r.tick() == Status::Running);
-  CHECK(r.tick() == Status::Success);
-  CHECK(r.result().value() == 3);
-  CHECK(r.tick() == Status::Success);
+  beet::Runner runner{beet::node(count_ticks), 3};
+  CHECK(runner.status() == Status::Idle);
+  CHECK(runner.tick() == Status::Running);
+  CHECK(runner.tick() == Status::Running);
+  CHECK(runner.tick() == Status::Success);
+  CHECK(runner.result().value() == 3);
+  CHECK(runner.tick() == Status::Success);
 }
 
 TEST_CASE(
     "co_await on a failing child propagates its error without resuming the "
     "parent") {
-  beet::Runner r{beet::node(sum_children)};
-  CHECK(r.tick() == Status::Running);
-  CHECK(r.tick() == Status::Running);
-  CHECK(r.tick() == Status::Failure);
-  CHECK(r.result().error().why == "late");
+  beet::Runner runner{beet::node(sum_children)};
+  CHECK(runner.tick() == Status::Running);
+  CHECK(runner.tick() == Status::Running);
+  CHECK(runner.tick() == Status::Failure);
+  CHECK(runner.result().error().why == "late");
 }
 
 TEST_CASE(
     "halting destroys suspended frames, and the next tick restarts the tree") {
   bool destroyed = false;
-  beet::Runner r{beet::node(forever), &destroyed};
-  CHECK(r.tick() == Status::Running);
-  CHECK(r.tick() == Status::Running);
+  beet::Runner runner{beet::node(forever), &destroyed};
+  CHECK(runner.tick() == Status::Running);
+  CHECK(runner.tick() == Status::Running);
   CHECK_FALSE(destroyed);
-  r.halt();
+  runner.halt();
   CHECK(destroyed);
-  CHECK(r.status() == Status::Idle);
+  CHECK(runner.status() == Status::Idle);
   destroyed = false;
-  CHECK(r.tick() == Status::Running);
+  CHECK(runner.tick() == Status::Running);
   CHECK_FALSE(destroyed);
 }
 
 TEST_CASE(
     "exceptions thrown by a noexcept coroutine node surface from tick()") {
-  beet::Runner r{beet::node(throws)};
-  CHECK(r.tick() == Status::Running);
-  CHECK_THROWS_AS(r.tick(), std::runtime_error);
+  beet::Runner runner{beet::node(throws)};
+  CHECK(runner.tick() == Status::Running);
+  CHECK_THROWS_AS(runner.tick(), std::runtime_error);
 }
 
 TEST_CASE("result() before completion is a logic error") {
-  beet::Runner r{beet::node(count_ticks), 2};
-  CHECK_THROWS_AS((void)r.result(), std::logic_error);
-  r.tick();
-  CHECK_THROWS_AS((void)r.result(), std::logic_error);
+  beet::Runner runner{beet::node(count_ticks), 2};
+  CHECK_THROWS_AS((void)runner.result(), std::logic_error);
+  runner.tick();
+  CHECK_THROWS_AS((void)runner.result(), std::logic_error);
 }
 
 TEST_CASE("reset() swaps the input for the next run") {
-  beet::Runner r{beet::node(count_ticks), 1};
-  CHECK(r.tick() == Status::Success);
-  r.reset(2);
-  CHECK(r.tick() == Status::Running);
-  CHECK(r.tick() == Status::Success);
-  CHECK(r.result().value() == 2);
+  beet::Runner runner{beet::node(count_ticks), 1};
+  CHECK(runner.tick() == Status::Success);
+  runner.reset(2);
+  CHECK(runner.tick() == Status::Running);
+  CHECK(runner.tick() == Status::Success);
+  CHECK(runner.result().value() == 2);
 }

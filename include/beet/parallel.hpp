@@ -72,7 +72,7 @@ struct runner_set {
 
   template <class In, class Trace, std::size_t... I>
   runner_set(const std::tuple<Cs...>& children, const In& in, Trace trace,
-             std::index_sequence<I...>)
+             std::index_sequence<I...> /*unused*/)
       : runners(std::get<I>(children).run(feed<Cs>(in),
                                           child_trace<Impl, I>(trace))...),
         ptrs{&std::get<I>(runners)...} {}
@@ -95,7 +95,8 @@ struct parallel_impl {
   Task<R> run(In in, Trace trace) const {
     runner_set<parallel_impl, Cs...> set(nodes, in, trace);
     for (;;) {
-      executor->bulk(count, [&set](std::size_t i) { set.ptrs[i]->tick(); });
+      executor->bulk(count,
+                     [&set](std::size_t index) { set.ptrs[index]->tick(); });
       if (auto outcome =
               decide(set.runners, Policy{}, std::index_sequence_for<Cs...>{})) {
         co_return std::move(*outcome);
@@ -105,52 +106,55 @@ struct parallel_impl {
   }
 
   template <class Runners, std::size_t... I>
-  static std::optional<R> decide(Runners& rs, all_policy,
-                                 std::index_sequence<I...>) {
+  static std::optional<R> decide(Runners& runners, all_policy /*unused*/,
+                                 std::index_sequence<I...> /*unused*/) {
     std::optional<R> out;
-    ((out || std::get<I>(rs).status() != Status::Failure
+    ((out || std::get<I>(runners).status() != Status::Failure
           ? void()
-          : void(out.emplace(
-                unexpect,
-                coerce<Err>(std::move(std::get<I>(rs).result().error()))))),
+          : void(out.emplace(unexpect,
+                             coerce<Err>(std::move(
+                                 std::get<I>(runners).result().error()))))),
      ...);
-    if (!out && (... && (std::get<I>(rs).status() == Status::Success))) {
-      out.emplace(tl::in_place, std::move(*std::get<I>(rs).result())...);
+    if (!out && (... && (std::get<I>(runners).status() == Status::Success))) {
+      out.emplace(tl::in_place, std::move(*std::get<I>(runners).result())...);
     }
     return out;
   }
 
   template <class Runners, std::size_t... I>
-  static std::optional<R> decide(Runners& rs, any_policy,
-                                 std::index_sequence<I...>) {
+  static std::optional<R> decide(Runners& runners, any_policy /*unused*/,
+                                 std::index_sequence<I...> /*unused*/) {
     std::optional<R> out;
-    ((out || std::get<I>(rs).status() != Status::Success
+    ((out || std::get<I>(runners).status() != Status::Success
           ? void()
           : void(out.emplace(tl::in_place, std::in_place_index<I>,
-                             std::move(*std::get<I>(rs).result())))),
+                             std::move(*std::get<I>(runners).result())))),
      ...);
-    if (!out && (... && (std::get<I>(rs).status() == Status::Failure))) {
-      out.emplace(
-          unexpect,
-          coerce<Err>(std::move(std::get<count - 1>(rs).result().error())));
+    if (!out && (... && (std::get<I>(runners).status() == Status::Failure))) {
+      out.emplace(unexpect,
+                  coerce<Err>(std::move(
+                      std::get<count - 1>(runners).result().error())));
     }
     return out;
   }
 
   template <class Runners, std::size_t K, std::size_t... I>
-  static std::optional<R> decide(Runners& rs, at_least_policy<K>,
-                                 std::index_sequence<I...>) {
+  static std::optional<R> decide(Runners& runners,
+                                 at_least_policy<K> /*unused*/,
+                                 std::index_sequence<I...> /*unused*/) {
     std::optional<R> out;
     const std::size_t succeeded =
-        (std::size_t{0} + ... + (std::get<I>(rs).status() == Status::Success));
+        (std::size_t{0} + ... +
+         (std::get<I>(runners).status() == Status::Success));
     const std::size_t failed =
-        (std::size_t{0} + ... + (std::get<I>(rs).status() == Status::Failure));
+        (std::size_t{0} + ... +
+         (std::get<I>(runners).status() == Status::Failure));
     if (succeeded >= K) {
-      out.emplace(tl::in_place, take_value(std::get<I>(rs))...);
+      out.emplace(tl::in_place, take_value(std::get<I>(runners))...);
     } else if (failed > count - K) {
-      ((std::get<I>(rs).status() == Status::Failure
-            ? void(out.emplace(unexpect,
-                               coerce<Err>(std::get<I>(rs).result().error())))
+      ((std::get<I>(runners).status() == Status::Failure
+            ? void(out.emplace(
+                  unexpect, coerce<Err>(std::get<I>(runners).result().error())))
             : void()),
        ...);
     }
@@ -158,10 +162,13 @@ struct parallel_impl {
   }
 
   template <class Runner>
-  static auto take_value(Runner& r) {
-    using V = typename std::remove_cvref_t<decltype(r.result())>::value_type;
-    if (r.status() != Status::Success) return std::optional<V>{};
-    return std::optional<V>{std::move(*r.result())};
+  static auto take_value(Runner& runner) {
+    using V =
+        typename std::remove_cvref_t<decltype(runner.result())>::value_type;
+    if (runner.status() != Status::Success) {
+      return std::optional<V>{};
+    }
+    return std::optional<V>{std::move(*runner.result())};
   }
 };
 

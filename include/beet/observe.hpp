@@ -23,12 +23,12 @@ namespace beet {
 /// thread-safe when the tree uses a `ThreadPoolExecutor`.
 template <class O>
 concept observer =
-    requires(O& o, std::uint32_t id, Status s, std::uint64_t tick) {
-      o.on_tick_begin(tick);
-      o.on_tick_end(tick, s);
-      o.on_start(id);
-      o.on_finish(id, s);
-      o.on_halt(id);
+    requires(O& obs, std::uint32_t id, Status outcome, std::uint64_t tick) {
+      obs.on_tick_begin(tick);
+      obs.on_tick_end(tick, outcome);
+      obs.on_start(id);
+      obs.on_finish(id, outcome);
+      obs.on_halt(id);
     };
 
 inline constexpr std::uint32_t no_parent =
@@ -68,7 +68,9 @@ struct type_name_holder {
   static constexpr std::string_view raw = raw_type_name<T>();
   static constexpr auto chars = [] {
     std::array<char, raw.size()> out{};
-    for (std::size_t i = 0; i < raw.size(); ++i) out[i] = raw[i];
+    for (std::size_t i = 0; i < raw.size(); ++i) {
+      out[i] = raw[i];
+    }
     return out;
   }();
 };
@@ -91,7 +93,8 @@ constexpr void describe_into(std::array<node_info, S>& out, std::uint32_t id,
 template <class Impl, std::size_t S, class... Cs, std::size_t... I>
 constexpr void describe_children(std::array<node_info, S>& out,
                                  [[maybe_unused]] std::uint32_t id,
-                                 type_list<Cs...>, std::index_sequence<I...>) {
+                                 type_list<Cs...> /*unused*/,
+                                 std::index_sequence<I...> /*unused*/) {
   (describe_into<Cs>(
        out, static_cast<std::uint32_t>(id + child_offset<Impl, I>::value), id,
        {}),
@@ -152,7 +155,9 @@ struct halt_guard {
   bool finished = false;
 
   ~halt_guard() {
-    if (!finished) observer->on_halt(id);
+    if (!finished) {
+      observer->on_halt(id);
+    }
   }
 };
 
@@ -196,8 +201,8 @@ enum class NodeStatus : std::uint8_t {
   Halted
 };
 
-constexpr std::string_view to_string(NodeStatus s) {
-  switch (s) {
+constexpr std::string_view to_string(NodeStatus status) {
+  switch (status) {
     case NodeStatus::Idle: return "idle";
     case NodeStatus::Running: return "running";
     case NodeStatus::Success: return "success";
@@ -218,10 +223,11 @@ class StatusTable {
   void on_tick_begin(std::uint64_t tick) {
     tick_.store(tick, std::memory_order_relaxed);
   }
-  void on_tick_end(std::uint64_t, Status) {}
+  void on_tick_end(std::uint64_t /*unused*/, Status /*unused*/) {}
   void on_start(std::uint32_t id) { set(id, NodeStatus::Running); }
-  void on_finish(std::uint32_t id, Status s) {
-    set(id, s == Status::Success ? NodeStatus::Success : NodeStatus::Failure);
+  void on_finish(std::uint32_t id, Status outcome) {
+    set(id,
+        outcome == Status::Success ? NodeStatus::Success : NodeStatus::Failure);
   }
   void on_halt(std::uint32_t id) { set(id, NodeStatus::Halted); }
 
@@ -233,8 +239,8 @@ class StatusTable {
   }
 
  private:
-  void set(std::uint32_t id, NodeStatus s) {
-    status_[id].store(s, std::memory_order_relaxed);
+  void set(std::uint32_t id, NodeStatus value) {
+    status_[id].store(value, std::memory_order_relaxed);
     changed_[id].store(tick_.load(std::memory_order_relaxed),
                        std::memory_order_relaxed);
   }

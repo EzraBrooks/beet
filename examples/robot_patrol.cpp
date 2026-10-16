@@ -9,7 +9,9 @@ int main() {
     std::printf("goal (%.0f, %.0f):\n", goal.x, goal.y);
     beet::Runner runner{tree, goal};
     int ticks = 1;
-    while (runner.tick() == beet::Status::Running) ++ticks;
+    while (runner.tick() == beet::Status::Running) {
+      ++ticks;
+    }
     std::printf("  %s (%d ticks)\n", runner.result()->text.c_str(), ticks);
   }
 }

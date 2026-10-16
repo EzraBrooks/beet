@@ -1,5 +1,7 @@
 # The analyzer and optional-access checks cannot follow coroutine resumption, so they misreport
 # state that the parent task establishes before resuming a child.
+# convert-member-functions-to-static would make awaiter members and members whose body differs across
+# #if branches static, which breaks the coroutine protocol or the other branch.
 Checks: >
   -*,
   bugprone-*,
@@ -19,14 +21,9 @@ Checks: >
   -modernize-use-trailing-return-type,
   -performance-enum-size,
   -performance-unnecessary-value-param,
-  -readability-braces-around-statements,
   -readability-convert-member-functions-to-static,
-  -readability-function-cognitive-complexity,
-  -readability-identifier-length,
-  -readability-implicit-bool-conversion,
-  -readability-magic-numbers,
-  -readability-named-parameter,
-  -readability-static-accessed-through-instance,
-  -readability-uppercase-literal-suffix,
+CheckOptions:
+  readability-identifier-length.IgnoredVariableNames: '^(in|id|ok|fn|ch|at|no|ex)$'
+  readability-identifier-length.IgnoredParameterNames: '^(in|id|ok|fn|ch|at|no|ex)$'
 WarningsAsErrors: '*'
 HeaderFilterRegex: '.*/(include/beet|examples|tests)/.*'

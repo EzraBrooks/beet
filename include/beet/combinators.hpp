@@ -59,7 +59,7 @@ struct sequence_impl {
   // which completes this task.
   template <class Trace, std::size_t... I>
   Task<Result<Out, Err>> run_all(In in, Trace trace,
-                                 std::index_sequence<I...>) const {
+                                 std::index_sequence<I...> /*unused*/) const {
     std::tuple<std::optional<In>, std::optional<output_t<Cs>>...> values;
     std::get<0>(values).emplace(std::move(in));
     ((void)std::get<I + 1>(values).emplace(co_await std::get<I>(nodes).run(
@@ -93,24 +93,27 @@ struct recover_impl<N, Handler, type_list<Hs...>> {
 
   template <class Trace>
   Task<Result<Out, Err>> run(input_t<N> in, Trace trace) const {
-    auto r = co_await settle(
+    auto result = co_await settle(
         inner.run(std::move(in), child_trace<recover_impl, 0>(trace)));
-    if (r) co_return std::move(*r);
+    if (result) {
+      co_return std::move(*result);
+    }
     if constexpr (is_variant_v<error_t<N>>) {
       co_return co_await settle(std::visit(
-          [this](auto& e) { return this->handle(std::move(e)); }, r.error()));
+          [this](auto& error) { return this->handle(std::move(error)); },
+          result.error()));
     } else {
-      co_return co_await settle(handle(std::move(r.error())));
+      co_return co_await settle(handle(std::move(result.error())));
     }
   }
 
   template <class E>
-  Task<Result<Out, Err>> handle(E e) const {
+  Task<Result<Out, Err>> handle(E error) const {
     if constexpr ((std::is_same_v<E, Hs> || ...)) {
       co_return to_result<Out, Err>(
-          co_await settle(call(handler, std::move(e))));
+          co_await settle(call(handler, std::move(error))));
     } else {
-      co_return make_unexpected(coerce<Err>(std::move(e)));
+      co_return make_unexpected(coerce<Err>(std::move(error)));
     }
   }
 };
@@ -141,9 +144,11 @@ struct fallback_impl {
           std::get<I>(nodes).run(feed<child_t<I>>(std::move(in)),
                                  child_trace<fallback_impl, I>(trace))));
     } else {
-      auto r = co_await settle(std::get<I>(nodes).run(
+      auto result = co_await settle(std::get<I>(nodes).run(
           feed<child_t<I>>(in), child_trace<fallback_impl, I>(trace)));
-      if (r) co_return coerce<Out>(std::move(*r));
+      if (result) {
+        co_return coerce<Out>(std::move(*result));
+      }
       co_return co_await attempt<I + 1>(std::move(in), trace);
     }
   }
@@ -164,7 +169,7 @@ struct finally_impl {
 
   template <class Trace>
   Task<result_t<N>> run(input_t<N> in, Trace trace) const {
-    guard g{&f};
+    guard on_exit{&f};
     co_return co_await settle(
         inner.run(std::move(in), child_trace<finally_impl, 0>(trace)));
   }
@@ -174,8 +179,10 @@ template <std::size_t N>
 struct fixed_string {
   char chars[N]{};
 
-  constexpr fixed_string(const char (&s)[N]) {
-    for (std::size_t i = 0; i < N; ++i) chars[i] = s[i];
+  constexpr fixed_string(const char (&str)[N]) {
+    for (std::size_t i = 0; i < N; ++i) {
+      chars[i] = str[i];
+    }
   }
   constexpr std::string_view view() const { return {chars, N - 1}; }
 };
@@ -201,13 +208,13 @@ struct named_impl {
 namespace detail {
 
 template <class... Cs>
-auto make_sequence(Cs... cs) {
+auto make_sequence(Cs... children) {
   static_assert(
       chains_v<Cs...>,
       "beet: sequence() child cannot accept the previous child's output type");
   using I = sequence_impl<Cs...>;
   return Node<I, typename I::In, typename I::Out, typename I::Err>(
-      I{{std::move(cs)...}});
+      I{{std::move(children)...}});
 }
 
 template <class First, class... Rest>
@@ -241,12 +248,12 @@ auto fallback(First first, Rest... rest) {
                                node(std::move(rest))...);
 }
 
-/// Handles the listed error types of `n` (all of them if none are listed) and
-/// removes them from the error set. The handler may return `Out`, `Result<Out,
-/// E2>`, or `Task<Result<Out, E2>>`; `E2` joins the error set.
+/// Handles the listed error types of `child` (all of them if none are listed)
+/// and removes them from the error set. The handler may return `Out`,
+/// `Result<Out, E2>`, or `Task<Result<Out, E2>>`; `E2` joins the error set.
 template <class... Es, class N, class Handler>
-auto recover(N n, Handler handler) {
-  auto inner = node(std::move(n));
+auto recover(N child, Handler handler) {
+  auto inner = node(std::move(child));
   using C = decltype(inner);
   static_assert(
       (error_contains_v<Es, error_t<C>> && ...),
@@ -258,23 +265,23 @@ auto recover(N n, Handler handler) {
       I{std::move(inner), std::move(handler)});
 }
 
-/// Calls `f()` when `n` finishes, fails, or is halted.
+/// Calls `fn()` when `child` finishes, fails, or is halted.
 template <class N, class F>
-auto finally(N n, F f) {
+auto finally(N child, F fn) {
   static_assert(std::is_invocable_v<const F&>,
                 "beet: finally() takes a callable with no arguments");
-  auto inner = node(std::move(n));
+  auto inner = node(std::move(child));
   using C = decltype(inner);
   using I = detail::finally_impl<C, F>;
   return Node<I, input_t<C>, output_t<C>, error_t<C>>(
-      I{std::move(inner), std::move(f)});
+      I{std::move(inner), std::move(fn)});
 }
 
 /// Labels a node for observers, e.g. `named<"plan">(plan_path)`. The label
 /// lives only in the type.
 template <detail::fixed_string Label, class N>
-auto named(N n) {
-  auto inner = node(std::move(n));
+auto named(N child) {
+  auto inner = node(std::move(child));
   using I = detail::named_impl<Label, decltype(inner)>;
   return Node<I, input_t<decltype(inner)>, output_t<decltype(inner)>,
               error_t<decltype(inner)>>(I{std::move(inner)});

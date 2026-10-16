@@ -15,31 +15,37 @@ using beet::Task;
 
 struct Bad {};
 
-Result<int, Bad> check(int x) noexcept {
-  if (x < 0) return beet::make_unexpected(Bad{});
-  return x;
+Result<int, Bad> check(int value) noexcept {
+  if (value < 0) {
+    return beet::make_unexpected(Bad{});
+  }
+  return value;
 }
-int twice(int x) noexcept { return x * 2; }
+int twice(int value) noexcept { return value * 2; }
 
-Task<Result<int, Bad>> slow(int x) noexcept {
-  for (int i = 0; i < x; ++i) co_await beet::running;
-  co_return x;
+Task<Result<int, Bad>> slow(int ticks) noexcept {
+  for (int i = 0; i < ticks; ++i) {
+    co_await beet::running;
+  }
+  co_return ticks;
 }
 
 struct Recorder {
   std::mutex mutex;
   std::vector<std::string> events;
 
-  void push(std::string e) {
+  void push(std::string event) {
     std::lock_guard lock(mutex);
-    events.push_back(std::move(e));
+    events.push_back(std::move(event));
   }
-  void on_tick_begin(std::uint64_t t) { push("tick:" + std::to_string(t)); }
-  void on_tick_end(std::uint64_t, Status) {}
+  void on_tick_begin(std::uint64_t tick) {
+    push("tick:" + std::to_string(tick));
+  }
+  void on_tick_end(std::uint64_t /*unused*/, Status /*unused*/) {}
   void on_start(std::uint32_t id) { push("start:" + std::to_string(id)); }
-  void on_finish(std::uint32_t id, Status s) {
+  void on_finish(std::uint32_t id, Status status) {
     push("finish:" + std::to_string(id) +
-         (s == Status::Success ? ":ok" : ":fail"));
+         (status == Status::Success ? ":ok" : ":fail"));
   }
   void on_halt(std::uint32_t id) { push("halt:" + std::to_string(id)); }
 };
@@ -88,11 +94,11 @@ TEST_CASE(
     "events follow depth-first execution and running nodes stay open across "
     "ticks") {
   Recorder rec;
-  beet::Runner r{make_tree(), 1,
-                 rec};  // `wait` receives 2, so it runs for two ticks
-  CHECK(r.tick() == Status::Running);
-  CHECK(r.tick() == Status::Running);
-  CHECK(r.tick() == Status::Success);
+  beet::Runner runner{make_tree(), 1,
+                      rec};  // `wait` receives 2, so it runs for two ticks
+  CHECK(runner.tick() == Status::Running);
+  CHECK(runner.tick() == Status::Running);
+  CHECK(runner.tick() == Status::Success);
   CHECK(rec.events == std::vector<std::string>{
                           "tick:0", "start:0", "start:1", "start:2", "start:3",
                           "finish:3:ok", "start:4", "finish:4:ok",
@@ -102,8 +108,8 @@ TEST_CASE(
 
 TEST_CASE("a short-circuited failure still finishes every enclosing node") {
   Recorder rec;
-  beet::Runner r{make_tree(), -1, rec};
-  while (r.tick() == Status::Running) {
+  beet::Runner runner{make_tree(), -1, rec};
+  while (runner.tick() == Status::Running) {
   }
   CHECK(rec.events == std::vector<std::string>{
                           "tick:0", "start:0", "start:1", "start:2", "start:3",
@@ -114,18 +120,18 @@ TEST_CASE("a short-circuited failure still finishes every enclosing node") {
 TEST_CASE(
     "halting reports every node that was still running, innermost first") {
   Recorder rec;
-  beet::Runner r{make_tree(), 3, rec};
-  r.tick();
+  beet::Runner runner{make_tree(), 3, rec};
+  runner.tick();
   rec.events.clear();
-  r.halt();
+  runner.halt();
   CHECK(rec.events == std::vector<std::string>{"halt:5", "halt:0"});
 }
 
 TEST_CASE("parallel_any halts the losing children") {
   auto tree = beet::parallel_any(slow, slow, slow);
   Recorder rec;
-  beet::Runner r{tree, 1, rec};
-  while (r.tick() == Status::Running) {
+  beet::Runner runner{tree, 1, rec};
+  while (runner.tick() == Status::Running) {
   }
   CHECK(rec.events.back() == "finish:0:ok");
   CHECK(rec.events == std::vector<std::string>{"tick:0", "start:0", "start:1",
@@ -133,11 +139,11 @@ TEST_CASE("parallel_any halts the losing children") {
                                                "finish:1:ok", "finish:2:ok",
                                                "finish:3:ok", "finish:0:ok"});
 
-  auto racing =
-      beet::parallel_any(beet::node(slow), beet::node([](int x) { return x; }));
+  auto racing = beet::parallel_any(beet::node(slow),
+                                   beet::node([](int value) { return value; }));
   Recorder rec2;
-  beet::Runner r2{racing, 5, rec2};
-  r2.tick();
+  beet::Runner second{racing, 5, rec2};
+  second.tick();
   CHECK(rec2.events == std::vector<std::string>{"tick:0", "start:0", "start:1",
                                                 "start:2", "finish:2:ok",
                                                 "halt:1", "finish:0:ok"});
@@ -146,8 +152,8 @@ TEST_CASE("parallel_any halts the losing children") {
 TEST_CASE("retry reports each attempt on the same ID") {
   auto tree = beet::retry(3, check);
   Recorder rec;
-  beet::Runner r{tree, -1, rec};
-  r.tick();
+  beet::Runner runner{tree, -1, rec};
+  runner.tick();
   CHECK(rec.events ==
         std::vector<std::string>{"tick:0", "start:0", "start:1",
                                  "finish:1:fail", "start:1", "finish:1:fail",
@@ -157,13 +163,13 @@ TEST_CASE("retry reports each attempt on the same ID") {
 TEST_CASE("StatusTable tracks the latest status of each node") {
   auto tree = make_tree();
   beet::StatusTable<decltype(tree)> table;
-  beet::Runner r{tree, 1, table};
-  r.tick();
+  beet::Runner runner{tree, 1, table};
+  runner.tick();
   CHECK(table.status(0) == beet::NodeStatus::Running);
   CHECK(table.status(3) == beet::NodeStatus::Success);
   CHECK(table.status(5) == beet::NodeStatus::Running);
-  r.tick();
-  r.tick();
+  runner.tick();
+  runner.tick();
   CHECK(table.status(0) == beet::NodeStatus::Success);
   CHECK(table.changed_at(5) == 2);
   CHECK(table.changed_at(3) == 0);
@@ -173,12 +179,14 @@ TEST_CASE("StatusTable works with a thread pool") {
   beet::ThreadPoolExecutor pool(4);
   auto tree = beet::parallel_all(pool, slow, slow, slow, slow);
   beet::StatusTable<decltype(tree)> table;
-  beet::Runner r{tree, 2, table};
-  CHECK(r.tick() == Status::Running);
-  for (std::uint32_t id = 0; id < table.size; ++id)
+  beet::Runner runner{tree, 2, table};
+  CHECK(runner.tick() == Status::Running);
+  for (std::uint32_t id = 0; id < decltype(table)::size; ++id) {
     CHECK(table.status(id) == beet::NodeStatus::Running);
-  while (r.tick() == Status::Running) {
   }
-  for (std::uint32_t id = 0; id < table.size; ++id)
+  while (runner.tick() == Status::Running) {
+  }
+  for (std::uint32_t id = 0; id < decltype(table)::size; ++id) {
     CHECK(table.status(id) == beet::NodeStatus::Success);
+  }
 }
