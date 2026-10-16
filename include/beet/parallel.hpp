@@ -22,7 +22,9 @@ namespace detail {
 struct all_policy {};
 struct any_policy {};
 template <std::size_t K>
-struct at_least_policy {};
+struct at_least_policy {
+  static constexpr std::size_t required = K;
+};
 
 template <class Policy, class... Cs>
 struct parallel_types;
@@ -96,8 +98,7 @@ struct parallel_impl {
     runner_set<parallel_impl, Cs...> set(nodes, in, trace);
     for (;;) {
       tick_all(set.runners);
-      if (auto outcome =
-              decide(set.runners, Policy{}, std::index_sequence_for<Cs...>{})) {
+      if (auto outcome = decide(set.runners)) {
         co_return std::move(*outcome);
       }
       co_await running;
@@ -119,9 +120,21 @@ struct parallel_impl {
     }
   }
 
-  template <class Runners, std::size_t... I>
-  static std::optional<R> decide(Runners& runners, all_policy /*unused*/,
-                                 std::index_sequence<I...> /*unused*/) {
+  template <class Runners>
+  static std::optional<R> decide(Runners& runners) {
+    return [&]<std::size_t... I>(std::index_sequence<I...> /*unused*/) {
+      if constexpr (std::is_same_v<Policy, all_policy>) {
+        return decide_all<I...>(runners);
+      } else if constexpr (std::is_same_v<Policy, any_policy>) {
+        return decide_any<I...>(runners);
+      } else {
+        return decide_at_least<I...>(runners);
+      }
+    }(std::index_sequence_for<Cs...>{});
+  }
+
+  template <std::size_t... I, class Runners>
+  static std::optional<R> decide_all(Runners& runners) {
     std::optional<R> out;
     ((out || std::get<I>(runners).status() != Status::Failure
           ? void()
@@ -135,9 +148,8 @@ struct parallel_impl {
     return out;
   }
 
-  template <class Runners, std::size_t... I>
-  static std::optional<R> decide(Runners& runners, any_policy /*unused*/,
-                                 std::index_sequence<I...> /*unused*/) {
+  template <std::size_t... I, class Runners>
+  static std::optional<R> decide_any(Runners& runners) {
     std::optional<R> out;
     ((out || std::get<I>(runners).status() != Status::Success
           ? void()
@@ -152,10 +164,9 @@ struct parallel_impl {
     return out;
   }
 
-  template <class Runners, std::size_t K, std::size_t... I>
-  static std::optional<R> decide(Runners& runners,
-                                 at_least_policy<K> /*unused*/,
-                                 std::index_sequence<I...> /*unused*/) {
+  template <std::size_t... I, class Runners>
+  static std::optional<R> decide_at_least(Runners& runners) {
+    constexpr std::size_t required = Policy::required;
     std::optional<R> out;
     const std::size_t succeeded =
         (std::size_t{0} + ... +
@@ -163,9 +174,9 @@ struct parallel_impl {
     const std::size_t failed =
         (std::size_t{0} + ... +
          (std::get<I>(runners).status() == Status::Failure));
-    if (succeeded >= K) {
+    if (succeeded >= required) {
       out.emplace(tl::in_place, take_value(std::get<I>(runners))...);
-    } else if (failed > count - K) {
+    } else if (failed > count - required) {
       ((std::get<I>(runners).status() == Status::Failure
             ? void(out.emplace(
                   unexpect, coerce<Err>(std::get<I>(runners).result().error())))

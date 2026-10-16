@@ -24,18 +24,13 @@ template <class A, class B>
 inline constexpr bool feeds_v =
     accepts_any_input_v<B> || std::constructible_from<input_t<B>, output_t<A>>;
 
-template <class Seq, class... Cs>
-struct chains;
-template <std::size_t... I, class... Cs>
-struct chains<std::index_sequence<I...>, Cs...> {
-  using T = std::tuple<Cs...>;
-  static constexpr bool value =
-      (feeds_v<std::tuple_element_t<I, T>, std::tuple_element_t<I + 1, T>> &&
-       ...);
-};
 template <class... Cs>
-inline constexpr bool chains_v =
-    chains<std::make_index_sequence<sizeof...(Cs) - 1>, Cs...>::value;
+inline constexpr bool chains_v = []<std::size_t... I>(
+                                     std::index_sequence<I...> /*unused*/) {
+  using T = std::tuple<Cs...>;
+  return (feeds_v<std::tuple_element_t<I, T>, std::tuple_element_t<I + 1, T>> &&
+          ...);
+}(std::make_index_sequence<sizeof...(Cs) - 1>{});
 
 /// Runs its children in order, feeding each one's output to the next.
 template <class... Cs>
@@ -275,11 +270,7 @@ struct fixed_string {
   std::array<char, N> chars{};
 
   // NOLINTNEXTLINE(modernize-avoid-c-arrays)
-  constexpr fixed_string(const char (&str)[N]) {
-    for (std::size_t i = 0; i < N; ++i) {
-      chars[i] = str[i];
-    }
-  }
+  constexpr fixed_string(const char (&str)[N]) : chars(std::to_array(str)) {}
   [[nodiscard]] constexpr std::string_view view() const {
     return {chars.data(), N - 1};
   }

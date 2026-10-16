@@ -1,7 +1,5 @@
 #include <doctest/doctest.h>
 
-#include <variant>
-
 #include "beet/beet.hpp"
 
 namespace {

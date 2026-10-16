@@ -9,7 +9,7 @@
 #include <string>
 #include <string_view>
 
-#include <rerun.hpp>
+#include <rerun.hpp>  // IWYU pragma: keep
 
 #include "rerun_tree.hpp"
 #include "robot_mission.hpp"

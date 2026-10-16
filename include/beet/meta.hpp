@@ -15,19 +15,19 @@ struct type_list {};
 
 namespace detail {
 
-template <class T>
-struct is_variant : std::false_type {};
-template <class... Ts>
-struct is_variant<std::variant<Ts...>> : std::true_type {};
-template <class T>
-inline constexpr bool is_variant_v = is_variant<T>::value;
+template <class T, template <class...> class Tmpl>
+inline constexpr bool is_specialization_v = false;
+template <template <class...> class Tmpl, class... Args>
+inline constexpr bool is_specialization_v<Tmpl<Args...>, Tmpl> = true;
+
+/// `T` is exactly `Tmpl<Args...>` for some `Args`.
+template <class T, template <class...> class Tmpl>
+concept specialization_of = is_specialization_v<T, Tmpl>;
 
 template <class T>
-struct is_result : std::false_type {};
-template <class T, class E>
-struct is_result<tl::expected<T, E>> : std::true_type {};
+inline constexpr bool is_variant_v = specialization_of<T, std::variant>;
 template <class T>
-inline constexpr bool is_result_v = is_result<T>::value;
+inline constexpr bool is_result_v = specialization_of<T, tl::expected>;
 
 template <class T, class List>
 struct contains;

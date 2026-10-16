@@ -16,6 +16,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <memory>
+#include <numbers>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -23,7 +24,7 @@
 #include <vector>
 
 #include <Eigen/Dense>
-#include <pinocchio/multibody/data.hpp>
+#include <pinocchio/multibody/data.hpp>  // IWYU pragma: keep
 #include <rerun.hpp>
 #include <roboplan/core/path_utils.hpp>
 #include <roboplan/core/scene.hpp>
@@ -238,10 +239,11 @@ Cell open_cell(Config config) {
     config.rec->log_static(entity, rerun::CoordinateFrame("world"));
   }
 
+  using std::numbers::pi;
   // Random start poses can land in pockets that are collision-free but walled
   // off by the floor and joint limits.
   Eigen::VectorXd home_arm(6);
-  home_arm << 0.0, -M_PI / 2, M_PI / 2, -M_PI / 2, -M_PI / 2, 0.0;
+  home_arm << 0.0, -pi / 2, pi / 2, -pi / 2, -pi / 2, 0.0;
   const Eigen::VectorXd home =
       scene->toFullJointPositions(std::string(group), home_arm);
   if (scene->hasCollisions(home))

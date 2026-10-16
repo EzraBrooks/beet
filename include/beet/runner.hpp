@@ -2,7 +2,7 @@
 
 #include <concepts>
 #include <cstdint>
-#include <cstdio>
+#include <cstdio>  // IWYU pragma: keep
 #include <cstdlib>
 #include <optional>
 #include <stdexcept>

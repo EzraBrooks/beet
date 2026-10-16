@@ -1,14 +1,19 @@
 #pragma once
 
 #include <algorithm>
+#include <atomic>
 #include <condition_variable>
 #include <cstddef>
 #include <deque>
 #include <exception>
 #include <functional>
+#include <latch>
 #include <mutex>
+#include <stop_token>
 #include <thread>
 #include <vector>
+
+#include "beet/result.hpp"
 
 namespace beet {
 
@@ -48,23 +53,13 @@ class ThreadPoolExecutor final : public Executor {
       std::size_t threads = std::max(1U, std::thread::hardware_concurrency())) {
     workers_.reserve(threads);
     for (std::size_t i = 0; i < threads; ++i) {
-      workers_.emplace_back([this] { work(); });
+      workers_.emplace_back(
+          [this](const std::stop_token& stop) { work(stop); });
     }
   }
 
   ThreadPoolExecutor(const ThreadPoolExecutor&) = delete;
   ThreadPoolExecutor& operator=(const ThreadPoolExecutor&) = delete;
-
-  ~ThreadPoolExecutor() override {
-    {
-      std::scoped_lock lock(mutex_);
-      stopping_ = true;
-    }
-    wake_.notify_all();
-    for (auto& worker : workers_) {
-      worker.join();
-    }
-  }
 
   void bulk(std::size_t count,
             const std::function<void(std::size_t)>& fn) override {
@@ -72,32 +67,23 @@ class ThreadPoolExecutor final : public Executor {
       return;
     }
 
-    struct Batch {
-      std::mutex mutex;
-      std::condition_variable finished;
-      std::size_t remaining = 0;
-      std::exception_ptr error;
-    } batch;
-    batch.remaining = count;
+    std::latch done(static_cast<std::ptrdiff_t>(count));
+    [[maybe_unused]] std::atomic_flag failed;
+    std::exception_ptr error;
 
-    auto run = [&batch, &fn](std::size_t index) {
-      std::exception_ptr error;
-#if defined(__cpp_exceptions) && !defined(BEET_NO_EXCEPTIONS)
+    auto run = [&](std::size_t index) {
+#if BEET_EXCEPTIONS
       try {
         fn(index);
       } catch (...) {
-        error = std::current_exception();
+        if (!failed.test_and_set()) {
+          error = std::current_exception();
+        }
       }
 #else
       fn(index);
 #endif
-      std::scoped_lock lock(batch.mutex);
-      if (error && !batch.error) {
-        batch.error = error;
-      }
-      if (--batch.remaining == 0) {
-        batch.finished.notify_all();
-      }
+      done.count_down();
     };
 
     {
@@ -109,24 +95,16 @@ class ThreadPoolExecutor final : public Executor {
     wake_.notify_all();
     run(0);
 
-    for (;;) {
-      {
-        std::scoped_lock lock(batch.mutex);
-        if (batch.remaining == 0) {
-          break;
-        }
-      }
+    while (!done.try_wait()) {
       if (auto job = try_pop()) {
         job();
-        continue;
+      } else {
+        done.wait();
       }
-      std::unique_lock lock(batch.mutex);
-      batch.finished.wait(lock, [&] { return batch.remaining == 0; });
-      break;
     }
 
-    if (batch.error) {
-      std::rethrow_exception(batch.error);
+    if (error) {
+      std::rethrow_exception(error);
     }
   }
 
@@ -141,13 +119,13 @@ class ThreadPoolExecutor final : public Executor {
     return job;
   }
 
-  void work() {
+  // Returns once stop is requested and the queue has drained.
+  void work(const std::stop_token& stop) {
     for (;;) {
       std::function<void()> job;
       {
         std::unique_lock lock(mutex_);
-        wake_.wait(lock, [this] { return stopping_ || !jobs_.empty(); });
-        if (stopping_ && jobs_.empty()) {
+        if (!wake_.wait(lock, stop, [this] { return !jobs_.empty(); })) {
           return;
         }
         job = std::move(jobs_.front());
@@ -158,10 +136,10 @@ class ThreadPoolExecutor final : public Executor {
   }
 
   std::mutex mutex_;
-  std::condition_variable wake_;
+  std::condition_variable_any wake_;
   std::deque<std::function<void()>> jobs_;
-  bool stopping_ = false;
-  std::vector<std::thread> workers_;
+  // Last, so the workers are stopped and joined before the queue is destroyed.
+  std::vector<std::jthread> workers_;
 };
 
 }  // namespace beet
