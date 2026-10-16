@@ -17,15 +17,8 @@ namespace beet {
 template <class Impl, class In, class Out, class Err>
 class Node;
 
-namespace detail {
 template <class T>
-struct is_node : std::false_type {};
-template <class Impl, class In, class Out, class Err>
-struct is_node<Node<Impl, In, Out, Err>> : std::true_type {};
-}  // namespace detail
-
-template <class T>
-concept node_type = detail::is_node<std::remove_cvref_t<T>>::value;
+concept node_type = detail::specialization_of<std::remove_cvref_t<T>, Node>;
 
 template <node_type N>
 using input_t = typename std::remove_cvref_t<N>::input_type;
@@ -37,11 +30,6 @@ template <node_type N>
 using result_t = typename std::remove_cvref_t<N>::result_type;
 
 namespace detail {
-
-template <class T>
-struct is_std_function : std::false_type {};
-template <class Sig>
-struct is_std_function<std::function<Sig>> : std::true_type {};
 
 /// Maps a callable's return type to the node output and error types it
 /// produces.
@@ -367,7 +355,7 @@ class Node {
   /// Type-erases another node into an `AnyNode`, widening its error set if
   /// needed.
   template <node_type Other>
-    requires(detail::is_std_function<Impl>::value &&
+    requires(detail::specialization_of<Impl, std::function> &&
              !std::is_same_v<std::remove_cvref_t<Other>, Node>)
   Node(Other other) : impl_(detail::erase<In, Out, Err>(std::move(other))) {}
 
@@ -405,7 +393,7 @@ class Node {
  private:
   template <class Trace>
   Task<result_type> run_impl(In in, Trace trace) const {
-    if constexpr (detail::is_std_function<Impl>::value) {
+    if constexpr (detail::specialization_of<Impl, std::function>) {
       return impl_(std::move(in));
     } else {
       return impl_.run(std::move(in), trace);

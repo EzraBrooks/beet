@@ -4,7 +4,7 @@
 #include <vector>
 
 #include "beet/beet.hpp"
-#include "beet/observe.hpp"
+#include "beet/observe.hpp"  // IWYU pragma: keep
 
 namespace {
 

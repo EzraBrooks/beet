@@ -17,11 +17,12 @@ namespace rerun_tree {
 
 inline rerun::Color color_of(beet::NodeStatus s) {
   switch (s) {
-    case beet::NodeStatus::Idle: return {110, 110, 110};
-    case beet::NodeStatus::Running: return {240, 190, 40};
-    case beet::NodeStatus::Success: return {60, 180, 80};
-    case beet::NodeStatus::Failure: return {220, 60, 60};
-    case beet::NodeStatus::Halted: return {150, 90, 200};
+    using enum beet::NodeStatus;
+    case Idle: return {110, 110, 110};
+    case Running: return {240, 190, 40};
+    case Success: return {60, 180, 80};
+    case Failure: return {220, 60, 60};
+    case Halted: return {150, 90, 200};
   }
   return {255, 255, 255};
 }

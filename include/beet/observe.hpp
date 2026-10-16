@@ -3,9 +3,9 @@
 // Opt-in tracing. Nothing in this header is reachable from an untraced
 // `Runner`, so trees run without an observer contain no tracing code at all.
 
+#include <algorithm>
 #include <array>
 #include <atomic>
-#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -46,7 +46,7 @@ struct node_info {
 namespace detail {
 
 template <class T>
-constexpr std::string_view raw_type_name() {
+consteval std::string_view raw_type_name() {
 #if defined(__clang__) || defined(__GNUC__)
   constexpr std::string_view fn = __PRETTY_FUNCTION__;
   constexpr std::size_t start = fn.find("T = ") + 4;
@@ -68,9 +68,7 @@ struct type_name_holder {
   static constexpr std::string_view raw = raw_type_name<T>();
   static constexpr auto chars = [] {
     std::array<char, raw.size()> out{};
-    for (std::size_t i = 0; i < raw.size(); ++i) {
-      out[i] = raw[i];
-    }
+    std::ranges::copy(raw, out.begin());
     return out;
   }();
 };
@@ -79,26 +77,11 @@ template <class Impl>
 constexpr std::string_view impl_kind() {
   if constexpr (requires { Impl::kind; }) {
     return Impl::kind;
-  } else if constexpr (is_std_function<Impl>::value) {
+  } else if constexpr (specialization_of<Impl, std::function>) {
     return "any";
   } else {
     return "node";
   }
-}
-
-template <class N, std::size_t S>
-constexpr void describe_into(std::array<node_info, S>& out, std::uint32_t id,
-                             std::uint32_t parent, std::string_view label);
-
-template <class Impl, std::size_t S, class... Cs, std::size_t... I>
-constexpr void describe_children(std::array<node_info, S>& out,
-                                 [[maybe_unused]] std::uint32_t id,
-                                 type_list<Cs...> /*unused*/,
-                                 std::index_sequence<I...> /*unused*/) {
-  (describe_into<Cs>(
-       out, static_cast<std::uint32_t>(id + child_offset<Impl, I>::value), id,
-       {}),
-   ...);
 }
 
 }  // namespace detail
@@ -106,7 +89,7 @@ constexpr void describe_children(std::array<node_info, S>& out,
 /// Compile-time spelling of `T`, e.g. `std::tuple<Odom, Level>`.
 /// Compiler-specific formatting.
 template <class T>
-constexpr std::string_view type_name() {
+consteval std::string_view type_name() {
   return {detail::type_name_holder<T>::chars.data(),
           detail::type_name_holder<T>::chars.size()};
 }
@@ -125,9 +108,13 @@ constexpr void describe_into(std::array<node_info, S>& out, std::uint32_t id,
                type_name<input_t<N>>(), type_name<output_t<N>>(),
                type_name<error_t<N>>(), parent};
     using Children = typename impl_children<Impl>::type;
-    [&]<class... Cs>(type_list<Cs...> children) {
-      describe_children<Impl>(out, id, children,
-                              std::index_sequence_for<Cs...>{});
+    [&]<class... Cs>(type_list<Cs...> /*unused*/) {
+      [&]<std::size_t... I>(std::index_sequence<I...> /*unused*/) {
+        (describe_into<Cs>(
+             out, static_cast<std::uint32_t>(id + child_offset<Impl, I>::value),
+             id, {}),
+         ...);
+      }(std::index_sequence_for<Cs...>{});
     }(Children{});
   }
 }
@@ -137,7 +124,7 @@ constexpr void describe_into(std::array<node_info, S>& out, std::uint32_t id,
 /// The tree's nodes in depth-first order, indexed by the IDs observers receive.
 /// The root is ID 0.
 template <node_type Tree>
-constexpr auto describe() {
+consteval auto describe() {
   std::array<node_info, detail::subtree_size_v<Tree>> out{};
   detail::describe_into<std::remove_cvref_t<Tree>>(out, 0, no_parent, {});
   return out;
@@ -213,11 +200,12 @@ enum class NodeStatus : std::uint8_t {
 
 constexpr std::string_view to_string(NodeStatus status) {
   switch (status) {
-    case NodeStatus::Idle: return "idle";
-    case NodeStatus::Running: return "running";
-    case NodeStatus::Success: return "success";
-    case NodeStatus::Failure: return "failure";
-    case NodeStatus::Halted: return "halted";
+    using enum NodeStatus;
+    case Idle: return "idle";
+    case Running: return "running";
+    case Success: return "success";
+    case Failure: return "failure";
+    case Halted: return "halted";
   }
   return "unknown";
 }
