@@ -54,13 +54,27 @@
         "CMAKE_BUILD_TYPE": "Release",
         "BEET_BUILD_BENCHMARKS": "ON"
       }
+    },
+    {
+      "name": "package",
+      "displayName": "Install beet to a local prefix the way a packager would",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build-package",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_TESTING": "OFF",
+        "BEET_INSTALL": "ON",
+        "BEET_USE_SYSTEM_DEPS": "ON",
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/build-package/prefix"
+      }
     }
   ],
   "buildPresets": [
     { "name": "dev", "configurePreset": "dev" },
     { "name": "rerun", "configurePreset": "rerun" },
     { "name": "roboplan", "configurePreset": "roboplan" },
-    { "name": "bench", "configurePreset": "bench" }
+    { "name": "bench", "configurePreset": "bench" },
+    { "name": "package", "configurePreset": "package" }
   ],
   "testPresets": [
     { "name": "dev", "configurePreset": "dev", "output": { "outputOnFailure": true } }

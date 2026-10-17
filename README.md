@@ -111,15 +111,57 @@ Current limits:
 - **User coroutine leaves:** subtrees awaited inside a user coroutine leaf (`co_await subtree(x)`) are reported as part of that leaf.
 - **`AnyNode`:** it appears as a single opaque node.
 
+## Using beet
+
+beet is header-only, needs C++20, and depends on [tl::expected](https://github.com/TartanLlama/expected) and a threads implementation. However you bring it in, you link one target:
+
+```cmake
+target_link_libraries(my_target PRIVATE beet::beet)
+```
+
+**An installed package.** `find_package` works against any prefix beet has been installed to, which is what colcon and conda workspaces expect:
+
+```cmake
+find_package(beet 0.1 REQUIRED)
+```
+
+The config package is versioned `SameMinorVersion`, so while beet is on 0.x a request for `0.1` accepts any 0.1.z and rejects 0.2. Install it with:
+
+```sh
+cmake -S . -B build -DBEET_USE_SYSTEM_DEPS=ON -DCMAKE_INSTALL_PREFIX=/your/prefix
+cmake --install build
+```
+
+`BEET_USE_SYSTEM_DEPS=ON` makes tl::expected a `find_package` requirement rather than something beet downloads. Packagers want this: the generated `beetConfig.cmake` calls `find_dependency(tl-expected)`, so an install built against a downloaded copy exports a dependency that was never installed. Configuring with `BEET_INSTALL=ON` and a fetched tl::expected warns about exactly that.
+
+**FetchContent.** beet downloads tl::expected itself unless it is already findable:
+
+```cmake
+include(FetchContent)
+FetchContent_Declare(beet
+  GIT_REPOSITORY https://github.com/EzraBrooks/beet.git
+  GIT_TAG main)
+FetchContent_MakeAvailable(beet)
+```
+
+**`add_subdirectory`.** A vendored copy or submodule works directly. Tests and examples stay off, because both default to beet being the top-level project.
+
+**Pixi / conda.** The dependencies are all on conda-forge:
+
+```sh
+pixi add cpp-expected
+```
+
 ## Building
 
 The developer environment is managed by [Pixi](https://pixi.sh):
 
 ```sh
-pixi run test   # configure, build, run tests
+pixi run test           # configure, build, run tests
+pixi run package-test   # install to a local prefix, build a find_package consumer against it
 ```
 
-beet is header-only and depends on [tl::expected](https://github.com/TartanLlama/expected). To use it from CMake, link `beet::beet`.
+Tests follow the CTest convention: they build when beet is the top-level project and `BUILD_TESTING` is on, so `-DBUILD_TESTING=OFF` turns them off.
 
 ## License
 
