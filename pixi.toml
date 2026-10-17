@@ -4,6 +4,9 @@ version = "0.1.0"
 description = "Typed, composable behavior trees for C++20"
 license = "MIT"
 license-file = "LICENSE"
+readme = "README.md"
+homepage = "https://github.com/EzraBrooks/beet"
+repository = "https://github.com/EzraBrooks/beet"
 channels = ["conda-forge"]
 platforms = ["osx-arm64", "osx-64", "linux-64", "linux-aarch64"]
 preview = ["pixi-build"]
@@ -11,14 +14,14 @@ preview = ["pixi-build"]
 # Builds the conda package: `pixi publish --target-dir dist`. Deliberately not listed in
 # [dependencies]; the dev environments consume the source tree directly and must not rebuild it.
 [package]
-name = "beet"
-version = "0.1.0"
-description = "Typed, composable behavior trees for C++20"
-license = "MIT"
+name = { workspace = true }
+version = { workspace = true }
+description = { workspace = true }
+license = { workspace = true }
 license-file = "LICENSE"
-readme = "README.md"
-homepage = "https://github.com/EzraBrooks/beet"
-repository = "https://github.com/EzraBrooks/beet"
+readme = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
 
 [package.build.backend]
 name = "pixi-build-cmake"
