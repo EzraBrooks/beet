@@ -146,11 +146,17 @@ FetchContent_MakeAvailable(beet)
 
 **`add_subdirectory`.** A vendored copy or submodule works directly. Tests and examples stay off, because both default to beet being the top-level project.
 
-**Pixi / conda.** The dependencies are all on conda-forge:
+**Pixi / conda.** beet builds as a conda package through [`pixi-build-cmake`](https://pixi.sh/latest/build/backends/pixi-build-cmake/), so a Pixi workspace can depend on it straight from source and get `find_package(beet)` for free:
 
-```sh
-pixi add cpp-expected
+```toml
+[workspace]
+preview = ["pixi-build"]
+
+[dependencies]
+beet = { git = "https://github.com/EzraBrooks/beet.git" }
 ```
+
+`pixi publish --target-dir dist` builds the `.conda` artifact on its own.
 
 ## Building
 
