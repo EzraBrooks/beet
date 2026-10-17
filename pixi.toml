@@ -22,7 +22,16 @@ example = { cmd = "./build/examples/robot_patrol", depends-on = ["build"] }
 bench-configure = "cmake --preset bench"
 bench-build = { cmd = "cmake --build --preset bench", depends-on = ["bench-configure"] }
 bench = { cmd = "./build-bench/benchmarks/tick_rate 5e6", depends-on = ["bench-build"] }
-clean = "rm -rf build build-rerun build-bench build-roboplan"
+clean = "rm -rf build build-rerun build-bench build-roboplan build-package"
+
+# Install beet to a local prefix, then build and run tests/package against it. This is the only
+# thing that proves find_package(beet) still works for downstream projects.
+package-configure = "cmake --preset package"
+package-install = { cmd = "cmake --install build-package", depends-on = ["package-configure"] }
+package-consumer = { cmd = "cmake -S tests/package -B build-package/consumer -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$PWD/build-package/prefix && cmake --build build-package/consumer", depends-on = [
+  "package-install",
+] }
+package-test = { cmd = "./build-package/consumer/beet_package_test", depends-on = ["package-consumer"] }
 
 [feature.rerun.dependencies]
 librerun-sdk = ">=0.38"
@@ -52,8 +61,8 @@ clang = "21.*"
 python = "*"
 
 [feature.lint.tasks]
-format = "clang-format -i include/beet/*.hpp tests/*.cpp tests/compile_fail/*.cpp examples/*.cpp examples/*.hpp benchmarks/*.cpp"
-format-check = "clang-format --dry-run --Werror include/beet/*.hpp tests/*.cpp tests/compile_fail/*.cpp examples/*.cpp examples/*.hpp benchmarks/*.cpp"
+format = "clang-format -i include/beet/*.hpp tests/*.cpp tests/compile_fail/*.cpp tests/package/*.cpp examples/*.cpp examples/*.hpp benchmarks/*.cpp"
+format-check = "clang-format --dry-run --Werror include/beet/*.hpp tests/*.cpp tests/compile_fail/*.cpp tests/package/*.cpp examples/*.cpp examples/*.hpp benchmarks/*.cpp"
 # compile_fail sources are excluded because they are meant not to compile. The conda include directory is
 # implicit for GCC, so it is missing from compile_commands.json.
 lint = { cmd = "run-clang-tidy -p build -quiet -extra-arg=-isystem$CONDA_PREFIX/include '^(?!.*/compile_fail/).*\\.cpp$'", depends-on = ["configure"] }

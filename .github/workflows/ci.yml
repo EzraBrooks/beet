@@ -46,6 +46,23 @@ jobs:
       - name: Benchmark tick rate
         run: pixi run bench
 
+  install-consumer:
+    name: Installed package (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: prefix-dev/setup-pixi@v0.11.0
+        with:
+          environments: default
+          locked: true
+          cache: true
+      - name: Install beet and build a find_package consumer
+        run: pixi run package-test
+
   rerun-example:
     name: Rerun example (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
