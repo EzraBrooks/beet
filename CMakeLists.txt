@@ -1,7 +1,14 @@
 cmake_minimum_required(VERSION 3.25)
 project(beet VERSION 0.1.0 LANGUAGES CXX)
 
-option(BEET_BUILD_TESTS "Build beet tests" ${PROJECT_IS_TOP_LEVEL})
+include(CMakeDependentOption)
+
+if(PROJECT_IS_TOP_LEVEL)
+  # Defines BUILD_TESTING (ON by default) and calls enable_testing().
+  include(CTest)
+endif()
+
+cmake_dependent_option(BEET_BUILD_TESTS "Build beet tests" ON "PROJECT_IS_TOP_LEVEL;BUILD_TESTING" OFF)
 option(BEET_BUILD_EXAMPLES "Build beet examples" ${PROJECT_IS_TOP_LEVEL})
 option(BEET_BUILD_RERUN_EXAMPLE "Build the Rerun status logging example (needs rerun_sdk)" OFF)
 option(BEET_BUILD_ROBOPLAN_EXAMPLE "Build the roboplan UR5 example (needs roboplan and rerun_sdk)" OFF)
@@ -35,6 +42,5 @@ if(BEET_BUILD_BENCHMARKS)
 endif()
 
 if(BEET_BUILD_TESTS)
-  enable_testing()
   add_subdirectory(tests)
 endif()
