@@ -111,15 +111,20 @@ Current limits:
 - **User coroutine leaves:** subtrees awaited inside a user coroutine leaf (`co_await subtree(x)`) are reported as part of that leaf.
 - **`AnyNode`:** it appears as a single opaque node.
 
+## Using beet
+
+beet is header-only C++20 and depends on [tl::expected](https://github.com/TartanLlama/expected), which it fetches if it can't find it. Use it via `find_package(beet)`, FetchContent or `add_subdirectory`, and link `beet::beet`.
+
+Packagers should configure with `-DCMAKE_REQUIRE_FIND_PACKAGE_tl-expected=ON` so the install doesn't bundle a fetched tl::expected.
+
 ## Building
 
 The developer environment is managed by [Pixi](https://pixi.sh):
 
 ```sh
-pixi run test   # configure, build, run tests
+pixi run test           # configure, build, run tests
+pixi run package-test   # build a find_package consumer against an installed beet
 ```
-
-beet is header-only and depends on [tl::expected](https://github.com/TartanLlama/expected). To use it from CMake, link `beet::beet`.
 
 ## License
 
