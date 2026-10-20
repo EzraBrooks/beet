@@ -72,16 +72,6 @@ struct promise_base {
   // Set when the awaiting parent propagates this task's error instead of
   // resuming.
   promise_base* propagate_to = nullptr;
-  std::coroutine_handle<> (*propagate)(promise_base& self) noexcept = nullptr;
-
-  std::coroutine_handle<> on_final() noexcept {
-    if (propagate != nullptr) {
-      if (auto next = propagate(*this)) {
-        return next;
-      }
-    }
-    return continuation ? continuation : std::noop_coroutine();
-  }
 
   void unhandled_exception() noexcept { exception = std::current_exception(); }
 };
@@ -141,8 +131,7 @@ struct try_awaiter {
   Task<U> task;
   promise_base* parent;
 
-  static std::coroutine_handle<> propagate(promise_base& self) noexcept {
-    auto& child = static_cast<promise<U>&>(self);
+  static std::coroutine_handle<> propagate(promise<U>& child) noexcept {
     if (!child.value || child.value->has_value()) {
       return {};
     }
@@ -206,6 +195,16 @@ struct ready_try_awaiter {
 template <class T>
 struct promise final : promise_base {
   std::optional<T> value;
+  std::coroutine_handle<> (*propagate)(promise& self) noexcept = nullptr;
+
+  std::coroutine_handle<> on_final() noexcept {
+    if (propagate != nullptr) {
+      if (auto next = propagate(*this)) {
+        return next;
+      }
+    }
+    return continuation ? continuation : std::noop_coroutine();
+  }
 
   Task<T> get_return_object() noexcept;
   [[nodiscard]] std::suspend_always initial_suspend() const noexcept {
