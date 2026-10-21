@@ -117,6 +117,18 @@ beet is header-only C++20 and depends on [tl::expected](https://github.com/Tarta
 
 Packagers should configure with `-DCMAKE_REQUIRE_FIND_PACKAGE_tl-expected=ON` so the install doesn't bundle a fetched tl::expected.
 
+beet also builds with [`pixi-build-cmake`](https://pixi.sh/latest/build/backends/pixi-build-cmake/), so a Pixi workspace can depend on it from source:
+
+```toml
+[workspace]
+preview = ["pixi-build"]
+
+[dependencies]
+beet = { git = "https://github.com/EzraBrooks/beet.git" }
+```
+
+`pixi publish --target-dir dist` builds the `.conda` artifact on its own.
+
 ## Building
 
 The developer environment is managed by [Pixi](https://pixi.sh):

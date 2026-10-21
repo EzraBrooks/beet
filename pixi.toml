@@ -4,14 +4,46 @@ version = "0.1.0"
 description = "Typed, composable behavior trees for C++20"
 license = "MIT"
 license-file = "LICENSE"
+readme = "README.md"
+homepage = "https://github.com/EzraBrooks/beet"
+repository = "https://github.com/EzraBrooks/beet"
 channels = ["conda-forge"]
 platforms = ["osx-arm64", "osx-64", "linux-64", "linux-aarch64"]
+preview = ["pixi-build"]
+
+[workspace.dependencies]
+cpp-expected = ">=1.1"
+
+# Builds the conda package: `pixi publish --target-dir dist`.
+[package]
+name = { workspace = true }
+version = { workspace = true }
+description = { workspace = true }
+license = { workspace = true }
+license-file = "LICENSE"
+readme = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+
+[package.build.backend]
+name = "pixi-build-cmake"
+version = "0.*"
+
+[package.build.config]
+# Mirrors the `package` CMake preset, so the package doesn't bundle a fetched tl::expected.
+extra-args = ["-DCMAKE_REQUIRE_FIND_PACKAGE_tl-expected=ON", "-DBUILD_TESTING=OFF", "-DBEET_BUILD_EXAMPLES=OFF"]
+
+[package.host-dependencies]
+cpp-expected = { workspace = true }
+
+[package.run-dependencies]
+cpp-expected = { workspace = true }
+
+# Installs the package's build, host and run dependencies without building it.
+[dev]
+beet = { path = "." }
 
 [dependencies]
-cmake = ">=3.25"
-ninja = "*"
-cxx-compiler = "*"
-cpp-expected = ">=1.1"
 doctest = ">=2.4"
 
 [tasks]
