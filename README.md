@@ -62,6 +62,7 @@ The same rules apply inside coroutine nodes. `co_await child(x)` yields the chil
 | Running | `co_await beet::running;` suspends a node until the next tick |
 | Halt | Destroying a suspended node; cleanup lives in destructors or `finally(node, f)` |
 | Decorators | `recover`, `retry`, `repeat`, `timeout_ticks`, `condition` |
+| Tick rate | `rate<K>(node)` ticks a region `K` times per period; `runner.run(period)` paces the whole tree |
 
 Trees are written top-down: every composite and decorator is a function that takes its children, so the code nests exactly as the tree does, with the root as the outermost call.
 
@@ -75,6 +76,33 @@ beet aims to do as much work as possible at compile time, so the compiler can in
 - **Tracing compiles away.** Without an observer, every tracing hook is discarded at compile time (see [Opt-in tracing](#opt-in-tracing)).
 - **No virtual dispatch on the default path.** Parallel nodes on the default inline executor tick their children with a compile-time fold, and a `ThreadPoolExecutor` is called directly rather than through a virtual interface.
 - **Ticks stay short.** `retry` and `repeat` start each new attempt on the next tick, so no decorator loops within a single tick.
+
+## Tick rates
+
+Instead of writing a loop that ticks the tree and then sleeps, mark the tree with a rate and let the `Runner` pace it:
+
+```cpp
+using namespace std::chrono_literals;
+
+auto tree = beet::rate<600>(beet::parallel_all(
+    control,                       // ticked 600 times per period
+    beet::rate<1>(report_status)));  // ticked once per period
+
+beet::Runner runner{tree, input};
+runner.run();       // the period defaults to one second
+runner.run(100ms);  // or run faster than real time, e.g. in tests
+```
+
+A rate has no unit. `rate<K>(node)` means "`K` ticks per period", and the period is whatever you pass to `run`. A region ticks its child on its first tick, then once every `P / K` ticks of the region around it, where `P` is that region's rate. Anything that counts ticks inside the region counts the region's ticks, so `timeout_ticks<10>` under `rate<1>` lasts 10 periods.
+
+**Rates are part of the type.** Every node has a `rate` (see `beet::rate_v<N>`), which is the least common multiple of the rates inside it, or 0 if it has none. The `Runner` ticks at the root's rate, so `parallel_all(rate<4>(a), rate<6>(b))` runs 12 ticks per period without a `rate` at the root. The compiler rejects a region whose rate does not divide the rate of the region around it, such as `rate<10>(rate<3>(x))`, so no region can fall out of step. A node containing a region can only be ticked through beet's combinators, since calling it directly or hiding it in an `AnyNode` would lose its rate.
+
+**Overruns.** Tick `i` is due at `i * period / rate` after the start, computed exactly so the schedule never drifts. When a tick finishes after the next deadline, `RunOptions::on_overrun` receives an `Overrun`. By default it writes a warning to `std::clog`, at most once per second. `RunOptions::missed_tick` picks what happens next, following Tokio's `MissedTickBehavior`. In every case the late tick runs right away:
+- `Skip` (the default) drops the deadlines that already passed and keeps the original schedule.
+- `Burst` keeps the original schedule and ticks back to back until it catches up.
+- `Delay` restarts the schedule from the late tick.
+
+`run` returns the tree's final status, or `Running` once `RunOptions::stop` is requested. `runner.tick()` still works for hand-written loops, and it divides region ticks the same way.
 
 ## Long-running work and concurrent branches
 

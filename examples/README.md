@@ -4,7 +4,7 @@ Each example is a complete program built with [Pixi](https://pixi.sh). The Rerun
 
 ## Robot patrol
 
-[robot_patrol.cpp](robot_patrol.cpp) runs the mission from the main README. The robot plans a path to each goal and drives it while watching its battery. Low battery and planning failures are handled with `recover`. The tree itself lives in [robot_mission.hpp](robot_mission.hpp). Every connection between its nodes is a typed value.
+[robot_patrol.cpp](robot_patrol.cpp) runs the mission from the main README. The robot plans a path to each goal and drives it while watching its battery. Low battery and planning failures are handled with `recover`. The tree itself lives in [robot_mission.hpp](robot_mission.hpp). Every connection between its nodes is a typed value. The mission runs at `beet::rate<10>`, and `runner.run(100ms)` uses a 100ms period instead of the default one second, so the patrol runs ten times faster than real time.
 
 ```sh
 pixi run example

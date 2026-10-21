@@ -4,6 +4,7 @@
 #include <concepts>
 #include <cstddef>
 #include <functional>
+#include <numeric>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -28,6 +29,9 @@ template <node_type N>
 using error_t = typename std::remove_cvref_t<N>::error_type;
 template <node_type N>
 using result_t = typename std::remove_cvref_t<N>::result_type;
+/// Ticks per period the subtree needs, or 0 if it contains no `rate<K>()`.
+template <node_type N>
+inline constexpr std::size_t rate_v = std::remove_cvref_t<N>::rate;
 
 namespace detail {
 
@@ -195,6 +199,7 @@ std::function<Task<Result<Out, Err>>(In)> erase(N child) {
   static_assert(
       error_subset_v<error_t<N>, Err>,
       "beet: AnyNode error set does not cover the wrapped node's errors");
+  static_assert(N::rate == 0, "beet: AnyNode cannot hide a rate<K>() region");
   if constexpr (std::is_same_v<input_t<N>, In> &&
                 std::is_same_v<result_t<N>, Result<Out, Err>>) {
     return [child = std::move(child)](In in) { return child(std::move(in)); };
@@ -256,6 +261,60 @@ struct untraced {
   }
 };
 
+/// Trace inside a region ticked `Rate` times per period, wrapping the
+/// observer's trace (or `untraced`).
+template <std::size_t Rate, class Inner>
+struct rated {
+  static constexpr std::size_t rate = Rate;
+
+  Inner inner;
+
+  template <std::size_t Offset>
+  [[nodiscard]] constexpr auto child() const noexcept {
+    auto inner_child = inner.template child<Offset>();
+    return rated<Rate, decltype(inner_child)>{inner_child};
+  }
+
+  template <class R>
+  Task<R> wrap(Task<R> task) const {
+    return inner.wrap(std::move(task));
+  }
+
+  template <class F>
+  auto wrap_sync(F&& run) const {
+    return inner.wrap_sync(std::forward<F>(run));
+  }
+};
+
+template <class Trace>
+struct unrated {
+  using type = Trace;
+  static constexpr std::size_t rate = 0;
+};
+template <std::size_t Rate, class Inner>
+struct unrated<rated<Rate, Inner>> {
+  using type = Inner;
+  static constexpr std::size_t rate = Rate;
+};
+
+/// Ticks per period of the region `Trace` belongs to, or 0 outside any region.
+template <class Trace>
+inline constexpr std::size_t trace_rate_v = unrated<Trace>::rate;
+
+template <class Trace>
+inline constexpr bool is_untraced_v =
+    std::is_same_v<typename unrated<Trace>::type, untraced>;
+
+/// `trace`, moved into a region ticked `Rate` times per period.
+template <std::size_t Rate, class Trace>
+constexpr rated<Rate, Trace> with_rate(const Trace& trace) {
+  return {trace};
+}
+template <std::size_t Rate, std::size_t Outer, class Inner>
+constexpr rated<Rate, Inner> with_rate(const rated<Outer, Inner>& trace) {
+  return {trace.inner};
+}
+
 template <class Impl>
 inline constexpr bool is_transparent_v = requires { Impl::transparent; };
 
@@ -278,6 +337,33 @@ template <class Impl>
   requires requires { typename Impl::children; }
 struct impl_children<Impl> {
   using type = typename Impl::children;
+};
+
+/// Least common multiple, where 0 means "no rate" and is the identity.
+constexpr std::size_t combine_rates(std::size_t lhs, std::size_t rhs) {
+  if (lhs == 0 || rhs == 0) {
+    return lhs + rhs;
+  }
+  return std::lcm(lhs, rhs);
+}
+
+/// Ticks per period `Impl` needs: its own rate if it sets one, otherwise the
+/// combined rates of its children.
+template <class Impl, class Children = typename impl_children<Impl>::type>
+struct impl_rate;
+template <class Impl, class... Cs>
+struct impl_rate<Impl, type_list<Cs...>> {
+  static constexpr std::size_t value = [] {
+    if constexpr (requires { Impl::rate; }) {
+      return Impl::rate;
+    } else if constexpr (is_transparent_v<Impl>) {
+      return Impl::inner_type::rate;
+    } else {
+      std::size_t rate = 0;
+      ((rate = combine_rates(rate, Cs::rate)), ...);
+      return rate;
+    }
+  }();
 };
 
 template <class N>
@@ -350,6 +436,10 @@ class Node {
   /// through `run_sync` without allocating coroutine frames.
   static constexpr bool is_sync = detail::impl_sync_v<Impl>;
 
+  /// Ticks per period the subtree needs: the least common multiple of every
+  /// `rate<K>()` region in it, or 0 if there are none.
+  static constexpr std::size_t rate = detail::impl_rate<Impl>::value;
+
   explicit Node(Impl impl) : impl_(std::move(impl)) {}
 
   /// Type-erases another node into an `AnyNode`, widening its error set if
@@ -360,6 +450,9 @@ class Node {
   Node(Other other) : impl_(detail::erase<In, Out, Err>(std::move(other))) {}
 
   Task<result_type> operator()(In in) const {
+    static_assert(rate == 0,
+                  "beet: a node containing rate<K>() cannot be called "
+                  "directly; compose it with beet combinators instead");
     return run(std::move(in), detail::untraced{});
   }
 
@@ -369,7 +462,7 @@ class Node {
   Task<result_type> run(In in, Trace trace) const {
     if constexpr (is_sync) {
       return detail::lazy_run(*this, std::move(in), trace);
-    } else if constexpr (std::is_same_v<Trace, detail::untraced> ||
+    } else if constexpr (detail::is_untraced_v<Trace> ||
                          detail::is_transparent_v<Impl>) {
       return run_impl(std::move(in), trace);
     } else {
@@ -381,7 +474,7 @@ class Node {
   template <class Trace>
     requires is_sync
   [[nodiscard]] result_type run_sync(In in, Trace trace) const {
-    if constexpr (std::is_same_v<Trace, detail::untraced> ||
+    if constexpr (detail::is_untraced_v<Trace> ||
                   detail::is_transparent_v<Impl>) {
       return impl_.run_sync(std::move(in), trace);
     } else {

@@ -20,7 +20,8 @@ add_executable(
   observe_test.cpp
   offload_test.cpp
   exception_test.cpp
-  sync_test.cpp)
+  sync_test.cpp
+  rate_test.cpp)
 target_link_libraries(beet_tests PRIVATE beet::beet doctest::doctest)
 target_compile_options(beet_tests PRIVATE ${BEET_WARNINGS})
 add_test(NAME beet_tests COMMAND beet_tests)
@@ -43,6 +44,11 @@ beet_compile_fail(cf_recover_unknown_error "recover<E>\\(\\) names an error type
 beet_compile_fail(cf_await_uncovered_error "errors are not covered by this coroutine's error set")
 beet_compile_fail(cf_parallel_input_mismatch "parallel children must share one input type")
 beet_compile_fail(cf_retry_zero "retry<Attempts>\\(\\) needs Attempts >= 1")
+beet_compile_fail(cf_rate_zero "rate<K>\\(\\) needs K >= 1")
+beet_compile_fail(cf_rate_not_divisible "rate<K>\\(\\) contains a region whose rate does not divide")
+beet_compile_fail(cf_rate_direct_call "a node containing rate<K>\\(\\) cannot be called")
+beet_compile_fail(cf_rate_any_node "AnyNode cannot hide a rate<K>\\(\\) region")
+beet_compile_fail(cf_run_without_rate "Runner::run\\(\\) needs a tree with a rate")
 
 # Tracing must leave no symbols in binaries that never attach an observer. The traced test binary
 # is the positive control that proves the pattern matches when tracing is used.
