@@ -4,7 +4,9 @@
 // entirely from the tree's type.
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
+#include <format>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -33,21 +35,22 @@ class GraphLogger {
   GraphLogger(const rerun::RecordingStream& rec, std::string entity)
       : rec_(rec), entity_(std::move(entity)) {
     std::vector<rerun::components::GraphEdge> edges;
-    std::vector<float> own(nodes.size(), 0.0f);
+    std::vector<float> own(nodes.size(), 0.0F);
     for (std::uint32_t i = 0; i < nodes.size(); ++i) {
       const auto& n = nodes[i];
       ids_.emplace_back("n" + std::to_string(i));
       const std::string_view name = n.label.empty() ? n.kind : n.label;
       const std::string input = shorten(n.input);
       const std::string output = shorten(n.output);
-      labels_.emplace_back(std::string(name) + "\nin: " + input +
-                           "\nout: " + output);
+      labels_.emplace_back(
+          std::format("{}\nin: {}\nout: {}", name, input, output));
       own[i] =
           char_width * static_cast<float>(std::max(
                            {name.size(), input.size() + 4, output.size() + 5}));
-      if (n.parent != beet::no_parent)
+      if (n.parent != beet::no_parent) {
         edges.emplace_back("n" + std::to_string(n.parent),
                            "n" + std::to_string(i));
+      }
     }
 
     // Tidy tree layout that cannot overlap: every subtree gets its own
@@ -61,21 +64,22 @@ class GraphLogger {
       children[nodes[i].parent].push_back(i);
       depth[i] = depth[nodes[i].parent] + 1;
     }
-    std::vector<float> span(nodes.size(), 0.0f);
-    std::vector<float> children_span(nodes.size(), 0.0f);
-    for (std::uint32_t i = static_cast<std::uint32_t>(nodes.size()); i-- > 0;) {
-      for (std::size_t c = 0; c < children[i].size(); ++c)
-        children_span[i] += span[children[i][c]] + (c ? gap : 0.0f);
+    std::vector<float> span(nodes.size(), 0.0F);
+    std::vector<float> children_span(nodes.size(), 0.0F);
+    for (auto i = static_cast<std::uint32_t>(nodes.size()); i-- > 0;) {
+      for (std::size_t c = 0; c < children[i].size(); ++c) {
+        children_span[i] += span[children[i][c]] + (c != 0 ? gap : 0.0F);
+      }
       span[i] = std::max(own[i], children_span[i]);
     }
-    std::vector<float> left(nodes.size(), 0.0f);
+    std::vector<float> left(nodes.size(), 0.0F);
     for (std::uint32_t i = 0; i < nodes.size(); ++i) {
-      float next = left[i] + (span[i] - children_span[i]) / 2;
+      float next = left[i] + ((span[i] - children_span[i]) / 2);
       for (std::uint32_t c : children[i]) {
         left[c] = next;
         next += span[c] + gap;
       }
-      positions_.emplace_back(left[i] + span[i] / 2,
+      positions_.emplace_back(left[i] + (span[i] / 2),
                               row_height * static_cast<float>(depth[i]));
     }
 
@@ -85,6 +89,7 @@ class GraphLogger {
 
   /// Logs every node's current status and returns the labels of the running
   /// named nodes, comma separated.
+  // NOLINTNEXTLINE(modernize-use-nodiscard)
   std::string log(const beet::StatusTable<Tree>& table) const {
     std::vector<rerun::components::Color> colors;
     std::string running;
@@ -108,16 +113,17 @@ class GraphLogger {
 
   // Approximate label metrics in graph units, generous enough for the viewer's
   // proportional font.
-  static constexpr float char_width = 7.5f;
-  static constexpr float gap = 40.0f;
-  static constexpr float row_height = 120.0f;
+  static constexpr float char_width = 7.5F;
+  static constexpr float gap = 40.0F;
+  static constexpr float row_height = 120.0F;
 
   static std::string shorten(std::string_view type) {
     constexpr std::string_view anon = "(anonymous namespace)::";
     std::string out(type);
     for (auto at = out.find(anon); at != std::string::npos;
-         at = out.find(anon, at))
+         at = out.find(anon, at)) {
       out.erase(at, anon.size());
+    }
     return out;
   }
 

@@ -1,0 +1,5 @@
+# Examples and benchmarks favor short math-style names and inline literals such as colors and poses.
+InheritParentConfig: true
+Checks: >
+  -readability-identifier-length,
+  -readability-magic-numbers,

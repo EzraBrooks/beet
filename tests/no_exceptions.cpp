@@ -1,4 +1,5 @@
 #include <string>
+#include <type_traits>
 
 #include "beet/beet.hpp"
 

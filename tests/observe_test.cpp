@@ -1,7 +1,9 @@
 #include <doctest/doctest.h>
 
+#include <cstdint>
 #include <mutex>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "beet/beet.hpp"

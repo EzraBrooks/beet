@@ -1,10 +1,13 @@
 #include <doctest/doctest.h>
 
 #include <atomic>
+#include <chrono>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <tuple>
+#include <type_traits>
 #include <variant>
 
 #include "beet/beet.hpp"

@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <string>
+#include <type_traits>
 #include <variant>
 
 #include "beet/beet.hpp"

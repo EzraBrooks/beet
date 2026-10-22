@@ -60,7 +60,7 @@ example = { cmd = "./build/examples/robot_patrol", depends-on = ["build"] }
 bench-configure = "cmake --preset bench"
 bench-build = { cmd = "cmake --build --preset bench", depends-on = ["bench-configure"] }
 bench = { cmd = "./build-bench/benchmarks/tick_rate 5e6", depends-on = ["bench-build"] }
-clean = "rm -rf build build-rerun build-bench build-roboplan build-package"
+clean = "rm -rf build build-rerun build-bench build-roboplan build-package build-lint"
 
 # Install beet to a local prefix, then build and run tests/package against it. This is the only
 # thing that proves find_package(beet) still works for downstream projects.
@@ -103,9 +103,10 @@ format = "clang-format -i include/beet/*.hpp tests/*.cpp tests/compile_fail/*.cp
 format-check = "clang-format --dry-run --Werror include/beet/*.hpp tests/*.cpp tests/compile_fail/*.cpp tests/package/*.cpp examples/*.cpp examples/*.hpp benchmarks/*.cpp"
 # compile_fail sources are excluded because they are meant not to compile. The conda include directory is
 # implicit for GCC, so it is missing from compile_commands.json.
-lint = { cmd = "run-clang-tidy -p build -quiet -extra-arg=-isystem$CONDA_PREFIX/include '^(?!.*/compile_fail/).*\\.cpp$'", depends-on = ["configure"] }
+lint-configure = "cmake --preset lint"
+lint = { cmd = "run-clang-tidy -p build-lint -quiet -extra-arg=-isystem$CONDA_PREFIX/include '^(?!.*/compile_fail/).*\\.cpp$'", depends-on = ["lint-configure"] }
 
 [environments]
 rerun = ["rerun"]
 roboplan = ["rerun", "roboplan"]
-lint = ["lint"]
+lint = ["lint", "rerun", "roboplan"]

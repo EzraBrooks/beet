@@ -1,5 +1,7 @@
 #include <doctest/doctest.h>
 
+#include <type_traits>
+
 #include "beet/beet.hpp"
 
 namespace {

@@ -1,9 +1,11 @@
 #include <doctest/doctest.h>
 
 #include <string>
+#include <type_traits>
 #include <variant>
 
 #include "beet/meta.hpp"
+#include "beet/result.hpp"
 
 namespace {
 
