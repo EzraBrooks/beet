@@ -512,7 +512,8 @@ Task<result_t<N>> lazy_run(const N& node, In in, Trace trace) {
 template <class N, class In, class Trace>
 auto await_child(const N& node, In&& in, Trace trace) {
   if constexpr (N::is_sync) {
-    return ready_t<result_t<N>>{node.run_sync(std::forward<In>(in), trace)};
+    return ready_result<result_t<N>>{
+        node.run_sync(std::forward<In>(in), trace)};
   } else {
     return node.run(std::forward<In>(in), trace);
   }

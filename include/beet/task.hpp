@@ -1,5 +1,9 @@
 #pragma once
 
+// `Task<T>` is a lazily started coroutine that resumes its children by
+// symmetric transfer. `detail::task_promise<T>` is its coroutine
+// `promise_type`; it is unrelated to `std::promise`.
+
 #include <cassert>
 #include <concepts>
 #include <coroutine>
@@ -14,11 +18,6 @@
 namespace beet {
 
 enum class Status : std::uint8_t { Idle, Running, Success, Failure };
-
-/// Per-runner state shared by every coroutine frame in one running tree.
-struct TickContext {
-  std::coroutine_handle<> leaf;  // innermost frame suspended on `running`
-};
 
 struct running_t {
   explicit running_t() = default;
@@ -48,30 +47,35 @@ namespace detail {
 /// a coroutine frame. `Settled` returns the whole result instead of
 /// propagating its error.
 template <class R, bool Settled = false>
-struct ready_t {
+struct ready_result {
   R result;
 };
 
 }  // namespace detail
 
 template <class R>
-detail::ready_t<R, true> settle(detail::ready_t<R>&& ready) {
+detail::ready_result<R, true> settle(detail::ready_result<R>&& ready) {
   return {std::move(ready.result)};
 }
 
 namespace detail {
 
-template <class T>
-struct promise;
+/// Per-runner state shared by every coroutine frame in one running tree.
+struct tick_context {
+  std::coroutine_handle<> leaf;  // innermost frame suspended on `running`
+};
 
-struct promise_base {
-  TickContext* ctx = nullptr;
+template <class T>
+struct task_promise;
+
+struct task_promise_base {
+  tick_context* ctx = nullptr;
   std::coroutine_handle<> continuation;
   std::exception_ptr exception;
 
   // Set when the awaiting parent propagates this task's error instead of
   // resuming.
-  promise_base* propagate_to = nullptr;
+  task_promise_base* propagate_to = nullptr;
 
   void unhandled_exception() noexcept { exception = std::current_exception(); }
 };
@@ -87,7 +91,7 @@ struct final_awaiter {
 };
 
 struct running_awaiter {
-  promise_base* self;
+  task_promise_base* self;
 
   [[nodiscard]] bool await_ready() const noexcept { return false; }
   void await_suspend(std::coroutine_handle<> caller) const noexcept {
@@ -98,9 +102,9 @@ struct running_awaiter {
 };
 
 template <class U>
-struct raw_awaiter {
+struct settle_awaiter {
   Task<U> task;
-  promise_base* parent;
+  task_promise_base* parent;
 
   [[nodiscard]] bool await_ready() const noexcept { return false; }
   std::coroutine_handle<> await_suspend(
@@ -129,13 +133,13 @@ struct try_awaiter {
                 "this coroutine's error set");
 
   Task<U> task;
-  promise_base* parent;
+  task_promise_base* parent;
 
-  static std::coroutine_handle<> propagate(promise<U>& child) noexcept {
+  static std::coroutine_handle<> propagate(task_promise<U>& child) noexcept {
     if (!child.value || child.value->has_value()) {
       return {};
     }
-    auto& outer = static_cast<promise<T>&>(*child.propagate_to);
+    auto& outer = static_cast<task_promise<T>&>(*child.propagate_to);
     outer.value.emplace(unexpect, coerce<typename T::error_type>(
                                       std::move(child.value->error())));
     return outer.on_final();
@@ -162,7 +166,7 @@ struct try_awaiter {
 };
 
 template <class U>
-struct ready_raw_awaiter {
+struct ready_settle_awaiter {
   U result;
 
   [[nodiscard]] bool await_ready() const noexcept { return true; }
@@ -179,12 +183,12 @@ struct ready_try_awaiter {
                 "this coroutine's error set");
 
   U result;
-  promise_base* parent;
+  task_promise_base* parent;
 
   [[nodiscard]] bool await_ready() const noexcept { return result.has_value(); }
   std::coroutine_handle<> await_suspend(
       std::coroutine_handle<> /*unused*/) noexcept {
-    auto& outer = static_cast<promise<T>&>(*parent);
+    auto& outer = static_cast<task_promise<T>&>(*parent);
     outer.value.emplace(
         unexpect, coerce<typename T::error_type>(std::move(result.error())));
     return outer.on_final();
@@ -193,9 +197,13 @@ struct ready_try_awaiter {
 };
 
 template <class T>
-struct promise final : promise_base {
+struct task_promise final : task_promise_base {
+  // Installed by a `try_awaiter`, which knows the parent's result type that
+  // this promise cannot name.
+  using propagate_fn = std::coroutine_handle<> (*)(task_promise&) noexcept;
+
   std::optional<T> value;
-  std::coroutine_handle<> (*propagate)(promise& self) noexcept = nullptr;
+  propagate_fn propagate = nullptr;
 
   std::coroutine_handle<> on_final() noexcept {
     if (propagate != nullptr) {
@@ -223,7 +231,7 @@ struct promise final : promise_base {
   }
 
   template <class U>
-  raw_awaiter<U> await_transform(settle_t<U>&& settled) noexcept {
+  settle_awaiter<U> await_transform(settle_t<U>&& settled) noexcept {
     return {std::move(settled.task), this};
   }
 
@@ -232,16 +240,16 @@ struct promise final : promise_base {
     if constexpr (is_result_v<T> && is_result_v<U>) {
       return try_awaiter<U, T>{std::move(task), this};
     } else {
-      return raw_awaiter<U>{std::move(task), this};
+      return settle_awaiter<U>{std::move(task), this};
     }
   }
 
   template <class U, bool Settled>
-  auto await_transform(ready_t<U, Settled>&& ready) {
+  auto await_transform(ready_result<U, Settled>&& ready) {
     if constexpr (!Settled && is_result_v<T> && is_result_v<U>) {
       return ready_try_awaiter<U, T>{std::move(ready.result), this};
     } else {
-      return ready_raw_awaiter<U>{std::move(ready.result)};
+      return ready_settle_awaiter<U>{std::move(ready.result)};
     }
   }
 
@@ -257,7 +265,7 @@ struct promise final : promise_base {
 template <class T>
 class [[nodiscard]] Task {
  public:
-  using promise_type = detail::promise<T>;
+  using promise_type = detail::task_promise<T>;
   using value_type = T;
 
   Task(Task&& other) noexcept : handle_(std::exchange(other.handle_, {})) {}
@@ -291,8 +299,8 @@ class [[nodiscard]] Task {
 };
 
 template <class T>
-Task<T> detail::promise<T>::get_return_object() noexcept {
-  return Task<T>(std::coroutine_handle<promise<T>>::from_promise(*this));
+Task<T> detail::task_promise<T>::get_return_object() noexcept {
+  return Task<T>(std::coroutine_handle<task_promise<T>>::from_promise(*this));
 }
 
 namespace detail {
@@ -302,7 +310,7 @@ struct runner_base {
   virtual Status tick() = 0;
 };
 
-/// Drives one task tick by tick with its own `TickContext`.
+/// Drives one task tick by tick with its own `tick_context`.
 template <class T>
 class TaskRunner final : public runner_base {
  public:
@@ -356,7 +364,7 @@ class TaskRunner final : public runner_base {
 
  private:
   Task<T> task_;
-  TickContext ctx_;
+  tick_context ctx_;
   bool started_ = false;
 };
 
