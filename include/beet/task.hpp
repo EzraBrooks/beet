@@ -305,20 +305,15 @@ Task<T> detail::task_promise<T>::get_return_object() noexcept {
 
 namespace detail {
 
-struct runner_base {
-  virtual ~runner_base() = default;
-  virtual Status tick() = 0;
-};
-
 /// Drives one task tick by tick with its own `tick_context`.
 template <class T>
-class TaskRunner final : public runner_base {
+class TaskRunner {
  public:
   explicit TaskRunner(Task<T> task) : task_(std::move(task)) {}
   TaskRunner(const TaskRunner&) = delete;
   TaskRunner& operator=(const TaskRunner&) = delete;
 
-  Status tick() override {
+  Status tick() {
     auto& state = task_.handle().promise();
     if (!state.done()) {
       if (!started_) {

@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -154,6 +155,35 @@ TEST_CASE("a thread pool executor ticks children concurrently") {
   CHECK(runner.tick() == Status::Success);
   CHECK(runner.result().value() == std::tuple{7, 7, 7, 7});
   CHECK(peak > 1);
+}
+
+/// Ticks children in reverse order and counts `bulk` calls.
+struct ReverseExecutor {
+  int calls = 0;
+
+  template <class F>
+  void bulk(std::size_t count, const F& fn) {
+    ++calls;
+    for (std::size_t i = count; i-- > 0;) {
+      fn(i);
+    }
+  }
+};
+static_assert(beet::executor<ReverseExecutor>);
+static_assert(beet::executor<beet::InlineExecutor>);
+static_assert(beet::executor<beet::ThreadPoolExecutor>);
+
+TEST_CASE("any type modeling executor can tick parallel children") {
+  ReverseExecutor exec;
+  std::string order;
+  auto mark = [&order](char id) {
+    return beet::node([&order, id] { order += id; });
+  };
+  auto tree = beet::parallel_all(exec, mark('a'), mark('b'), mark('c'));
+  beet::Runner runner{tree};
+  CHECK(runner.tick() == Status::Success);
+  CHECK(exec.calls == 1);
+  CHECK(order == "cba");
 }
 
 TEST_CASE("nested parallel nodes on one pool do not deadlock") {

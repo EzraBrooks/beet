@@ -17,37 +17,29 @@
 
 namespace beet {
 
-/// Decides how a parallel node ticks its children within a single tick.
-class Executor {
- public:
-  virtual ~Executor() = default;
-
-  /// Calls `fn(i)` for every `i` in `[0, count)` and returns once all calls
-  /// have finished. Rethrows the first exception thrown by any call.
-  virtual void bulk(std::size_t count,
-                    const std::function<void(std::size_t)>& fn) = 0;
-};
+/// Decides how a parallel node ticks its children within a single tick:
+/// `exec.bulk(count, fn)` calls `fn(i)` for every `i` in `[0, count)` and
+/// returns once all calls have finished, rethrowing the first exception thrown
+/// by any call. An empty (stateless) executor is stored by value; any other is
+/// referenced and must outlive the nodes built with it.
+template <class E>
+concept executor = requires(E& exec, std::size_t count,
+                            void (*fn)(std::size_t)) { exec.bulk(count, fn); };
 
 /// Ticks children one after another on the calling thread, in order.
-class InlineExecutor final : public Executor {
- public:
-  void bulk(std::size_t count,
-            const std::function<void(std::size_t)>& fn) override {
+struct InlineExecutor {
+  template <class F>
+  void bulk(std::size_t count, const F& fn) const {
     for (std::size_t i = 0; i < count; ++i) {
       fn(i);
     }
   }
 };
 
-inline InlineExecutor& inline_executor() {
-  static InlineExecutor executor;
-  return executor;
-}
-
 /// Ticks children concurrently on a fixed set of worker threads. The calling
 /// thread helps run queued work while it waits, so nested parallel nodes on the
 /// same pool cannot deadlock.
-class ThreadPoolExecutor final : public Executor {
+class ThreadPoolExecutor {
  public:
   explicit ThreadPoolExecutor(
       std::size_t threads = std::max(1U, std::thread::hardware_concurrency())) {
@@ -61,8 +53,8 @@ class ThreadPoolExecutor final : public Executor {
   ThreadPoolExecutor(const ThreadPoolExecutor&) = delete;
   ThreadPoolExecutor& operator=(const ThreadPoolExecutor&) = delete;
 
-  void bulk(std::size_t count,
-            const std::function<void(std::size_t)>& fn) override {
+  template <class F>
+  void bulk(std::size_t count, const F& fn) {
     if (count == 0) {
       return;
     }

@@ -74,7 +74,7 @@ beet aims to do as much work as possible at compile time, so the compiler can in
 - **Structure is static.** A tree's shape, node IDs, and type names are computed at compile time from its type.
 - **Plain functions stay plain.** A subtree made only of plain functions finishes on the tick it starts, so beet runs it as ordinary nested calls with no coroutine frames. beet allocates nothing to tick a tree made entirely of plain functions.
 - **Tracing compiles away.** Without an observer, every tracing hook is discarded at compile time (see [Opt-in tracing](#opt-in-tracing)).
-- **No virtual dispatch on the default path.** Parallel nodes on the default inline executor tick their children with a compile-time fold, and a `ThreadPoolExecutor` is called directly rather than through a virtual interface.
+- **No virtual dispatch.** Parallel nodes on the default inline executor tick their children with a compile-time fold. Any other type modeling the `executor` concept, such as `ThreadPoolExecutor`, is called directly with no interface to inherit.
 - **Ticks stay short.** `retry` and `repeat` start each new attempt on the next tick, so no decorator loops within a single tick.
 
 ## Tick rates
