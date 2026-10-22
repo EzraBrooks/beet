@@ -136,12 +136,15 @@ struct parallel_impl {
   template <std::size_t... I, class Runners>
   static std::optional<R> decide_all(Runners& runners) {
     std::optional<R> out;
-    ((out || std::get<I>(runners).status() != Status::Failure
-          ? void()
-          : void(out.emplace(unexpect,
-                             coerce<Err>(std::move(
-                                 std::get<I>(runners).result().error()))))),
-     ...);
+    (
+        [&] {
+          if (!out && std::get<I>(runners).status() == Status::Failure) {
+            out.emplace(
+                unexpect,
+                coerce<Err>(std::move(std::get<I>(runners).result().error())));
+          }
+        }(),
+        ...);
     if (!out && (... && (std::get<I>(runners).status() == Status::Success))) {
       out.emplace(tl::in_place, std::move(*std::get<I>(runners).result())...);
     }
@@ -151,11 +154,14 @@ struct parallel_impl {
   template <std::size_t... I, class Runners>
   static std::optional<R> decide_any(Runners& runners) {
     std::optional<R> out;
-    ((out || std::get<I>(runners).status() != Status::Success
-          ? void()
-          : void(out.emplace(tl::in_place, std::in_place_index<I>,
-                             std::move(*std::get<I>(runners).result())))),
-     ...);
+    (
+        [&] {
+          if (!out && std::get<I>(runners).status() == Status::Success) {
+            out.emplace(tl::in_place, std::in_place_index<I>,
+                        std::move(*std::get<I>(runners).result()));
+          }
+        }(),
+        ...);
     if (!out && (... && (std::get<I>(runners).status() == Status::Failure))) {
       out.emplace(unexpect,
                   coerce<Err>(std::move(
@@ -177,11 +183,14 @@ struct parallel_impl {
     if (succeeded >= required) {
       out.emplace(tl::in_place, take_value(std::get<I>(runners))...);
     } else if (failed > count - required) {
-      ((std::get<I>(runners).status() == Status::Failure
-            ? void(out.emplace(
-                  unexpect, coerce<Err>(std::get<I>(runners).result().error())))
-            : void()),
-       ...);
+      (
+          [&] {
+            if (std::get<I>(runners).status() == Status::Failure) {
+              out.emplace(unexpect,
+                          coerce<Err>(std::get<I>(runners).result().error()));
+            }
+          }(),
+          ...);
     }
     return out;
   }
