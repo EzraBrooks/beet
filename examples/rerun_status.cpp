@@ -37,7 +37,7 @@ int main(int argc, char** argv) {
   std::int64_t frame = 0;
   for (std::size_t run = 0; run < mission::goals.size(); ++run) {
     beet::StatusTable<Tree> table;
-    beet::Runner runner{tree, mission::goals[run], table};
+    beet::Runner runner{tree, mission::goals[run], table.listeners()};
 
     beet::Status status;
     do {

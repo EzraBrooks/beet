@@ -1,7 +1,7 @@
 #pragma once
 
 // Opt-in tracing. Nothing in this header is reachable from an untraced
-// `Runner`, so trees run without an observer contain no tracing code at all.
+// `Runner`, so trees run without listeners contain no tracing code at all.
 
 #include <algorithm>
 #include <array>
@@ -20,17 +20,27 @@
 
 namespace beet {
 
-/// Receives node events by depth-first node ID (see `describe`). Must be
-/// thread-safe when the tree uses a `ThreadPoolExecutor`.
-template <class O>
-concept observer =
-    requires(O& obs, std::uint32_t id, Status outcome, std::uint64_t tick) {
-      obs.on_tick_begin(tick);
-      obs.on_tick_end(tick, outcome);
-      obs.on_start(id);
-      obs.on_finish(id, outcome);
-      obs.on_halt(id);
-    };
+/// The hook a `Listeners` leaves unset.
+struct ignore_event {
+  constexpr void operator()(const auto&... /*unused*/) const noexcept {}
+};
+
+/// Callbacks for a `Runner`'s node events, by depth-first node ID (see
+/// `describe`). Set only the hooks you need; the rest compile to nothing:
+///
+///   beet::Listeners listeners{.on_halt = [](std::uint32_t id) { ... }};
+///
+/// Hooks must be thread-safe when the tree uses a `ThreadPoolExecutor`.
+template <class TickBegin = ignore_event, class TickEnd = ignore_event,
+          class Start = ignore_event, class Finish = ignore_event,
+          class Halt = ignore_event>
+struct Listeners {
+  TickBegin on_tick_begin{};  // (std::uint64_t tick)
+  TickEnd on_tick_end{};      // (std::uint64_t tick, Status outcome)
+  Start on_start{};           // (std::uint32_t id)
+  Finish on_finish{};         // (std::uint32_t id, Status outcome)
+  Halt on_halt{};             // (std::uint32_t id)
+};
 
 inline constexpr std::uint32_t no_parent =
     std::numeric_limits<std::uint32_t>::max();
@@ -122,7 +132,7 @@ constexpr void describe_into(std::array<node_info, S>& out, std::uint32_t id,
 
 }  // namespace detail
 
-/// The tree's nodes in depth-first order, indexed by the IDs observers receive.
+/// The tree's nodes in depth-first order, indexed by the IDs listeners receive.
 /// The root is ID 0.
 template <node_type Tree>
 consteval auto describe() {
@@ -136,42 +146,55 @@ inline constexpr auto tree_info = describe<Tree>();
 
 namespace detail {
 
-template <class R, class Obs>
-Task<R> observe(Task<R> inner, Obs* observer, std::uint32_t id) {
-  observer->on_start(id);
-  scope_exit on_halt{[observer, id] { observer->on_halt(id); }};
+template <class R, class Hooks>
+Task<R> observe(Task<R> inner, Hooks* hooks, std::uint32_t id) {
+  hooks->on_start(id);
+  scope_exit on_halt{[hooks, id] { hooks->on_halt(id); }};
   R result = co_await settle(std::move(inner));
   on_halt.release();
-  observer->on_finish(id,
-                      result.has_value() ? Status::Success : Status::Failure);
+  hooks->on_finish(id, result.has_value() ? Status::Success : Status::Failure);
   co_return std::move(result);
 }
 
-template <class Obs>
-struct traced {
-  static_assert(observer<Obs>,
-                "beet: Runner observer does not satisfy beet::observer");
+template <class L>
+concept valid_listeners =
+    requires(L& hooks, std::uint32_t id, Status outcome, std::uint64_t tick) {
+      hooks.on_tick_begin(tick);
+      hooks.on_tick_end(tick, outcome);
+      hooks.on_start(id);
+      hooks.on_finish(id, outcome);
+      hooks.on_halt(id);
+    };
 
-  Obs* obs;
+template <class Hooks>
+struct traced {
+  static_assert(specialization_of<Hooks, Listeners>,
+                "beet: a Runner's third argument must be a beet::Listeners");
+  static_assert(valid_listeners<Hooks>,
+                "beet: a beet::Listeners hook cannot be called with its "
+                "event's arguments");
+
+  Hooks* hooks;
   std::uint32_t id;
 
   template <std::size_t Offset>
   [[nodiscard]] constexpr traced child() const noexcept {
-    return {obs, static_cast<std::uint32_t>(id + Offset)};
+    return {hooks, static_cast<std::uint32_t>(id + Offset)};
   }
 
   template <class R>
   Task<R> wrap(Task<R> inner) const {
-    return observe(std::move(inner), obs, id);
+    return observe(std::move(inner), hooks, id);
   }
 
   template <class F>
   auto wrap_sync(F&& run) const {
-    obs->on_start(id);
-    scope_exit on_halt{[this] { obs->on_halt(id); }};
+    hooks->on_start(id);
+    scope_exit on_halt{[this] { hooks->on_halt(id); }};
     auto result = std::forward<F>(run)();
     on_halt.release();
-    obs->on_finish(id, result.has_value() ? Status::Success : Status::Failure);
+    hooks->on_finish(id,
+                     result.has_value() ? Status::Success : Status::Failure);
     return result;
   }
 };
@@ -206,16 +229,22 @@ class StatusTable {
   static constexpr auto nodes = describe<Tree>();
   static constexpr std::size_t size = nodes.size();
 
-  void on_tick_begin(std::uint64_t tick) {
-    tick_.store(tick, std::memory_order_relaxed);
+  /// Hooks that keep this table up to date, for a `Runner`. The table must
+  /// outlive the `Runner`.
+  [[nodiscard]] auto listeners() {
+    return Listeners{
+        .on_tick_begin =
+            [this](std::uint64_t tick) {
+              tick_.store(tick, std::memory_order_relaxed);
+            },
+        .on_start = [this](std::uint32_t id) { set(id, NodeStatus::Running); },
+        .on_finish =
+            [this](std::uint32_t id, Status outcome) {
+              set(id, outcome == Status::Success ? NodeStatus::Success
+                                                 : NodeStatus::Failure);
+            },
+        .on_halt = [this](std::uint32_t id) { set(id, NodeStatus::Halted); }};
   }
-  void on_tick_end(std::uint64_t /*unused*/, Status /*unused*/) {}
-  void on_start(std::uint32_t id) { set(id, NodeStatus::Running); }
-  void on_finish(std::uint32_t id, Status outcome) {
-    set(id,
-        outcome == Status::Success ? NodeStatus::Success : NodeStatus::Failure);
-  }
-  void on_halt(std::uint32_t id) { set(id, NodeStatus::Halted); }
 
   [[nodiscard]] NodeStatus status(std::uint32_t id) const {
     return status_[id].load(std::memory_order_relaxed);

@@ -65,19 +65,25 @@ static_assert(!sync_v<beet::AnyNode<int, int, Bad>>);
 struct Recorder {
   std::vector<std::string> events;
 
-  void on_tick_begin(std::uint64_t tick) {
-    events.push_back("tick:" + std::to_string(tick));
-  }
-  void on_tick_end(std::uint64_t /*unused*/, Status /*unused*/) {}
-  void on_start(std::uint32_t id) {
-    events.push_back("start:" + std::to_string(id));
-  }
-  void on_finish(std::uint32_t id, Status status) {
-    events.push_back("finish:" + std::to_string(id) +
-                     (status == Status::Success ? ":ok" : ":fail"));
-  }
-  void on_halt(std::uint32_t id) {
-    events.push_back("halt:" + std::to_string(id));
+  auto listeners() {
+    return beet::Listeners{
+        .on_tick_begin =
+            [this](std::uint64_t tick) {
+              events.push_back("tick:" + std::to_string(tick));
+            },
+        .on_start =
+            [this](std::uint32_t id) {
+              events.push_back("start:" + std::to_string(id));
+            },
+        .on_finish =
+            [this](std::uint32_t id, Status status) {
+              events.push_back("finish:" + std::to_string(id) +
+                               (status == Status::Success ? ":ok" : ":fail"));
+            },
+        .on_halt =
+            [this](std::uint32_t id) {
+              events.push_back("halt:" + std::to_string(id));
+            }};
   }
 };
 
@@ -158,7 +164,7 @@ TEST_CASE("a traced sync tree reports events in depth-first order") {
   // IDs: 0 recover, 1 sequence, 2 check, 3 twice
   auto tree = beet::recover(beet::sequence(check, twice), quick_handler);
   Recorder ok;
-  beet::Runner passes{tree, 2, ok};
+  beet::Runner passes{tree, 2, ok.listeners()};
   CHECK(passes.tick() == Status::Success);
   CHECK(ok.events == std::vector<std::string>{"tick:0", "start:0", "start:1",
                                               "start:2", "finish:2:ok",
@@ -166,7 +172,7 @@ TEST_CASE("a traced sync tree reports events in depth-first order") {
                                               "finish:1:ok", "finish:0:ok"});
 
   Recorder failed;
-  beet::Runner fails{tree, -2, failed};
+  beet::Runner fails{tree, -2, failed.listeners()};
   CHECK(fails.tick() == Status::Success);
   CHECK(failed.events == std::vector<std::string>{
                              "tick:0", "start:0", "start:1", "start:2",

@@ -415,27 +415,25 @@ auto make_tree(const std::shared_ptr<const rerun::RecordingStream>& rec) {
 // Stamps each tick with Rerun time before the tree logs anything, and draws
 // the tree's status once the tick ends.
 template <class Tree>
-struct TickLogger {
-  const rerun::RecordingStream& rec;
-  const rerun_tree::GraphLogger<Tree>& graph;
-  beet::StatusTable<Tree> table;
-
-  void on_tick_begin(std::uint64_t tick) {
-    rec.set_time_sequence("tick", static_cast<std::int64_t>(tick));
-    rec.set_time_duration_secs("sim_time",
-                               static_cast<double>(tick) * control_dt);
-    table.on_tick_begin(tick);
-  }
-  void on_tick_end(std::uint64_t tick, beet::Status status) {
-    table.on_tick_end(tick, status);
-    graph.log(table);
-  }
-  void on_start(std::uint32_t id) { table.on_start(id); }
-  void on_finish(std::uint32_t id, beet::Status status) {
-    table.on_finish(id, status);
-  }
-  void on_halt(std::uint32_t id) { table.on_halt(id); }
-};
+auto tick_logger(const rerun::RecordingStream& rec,
+                 const rerun_tree::GraphLogger<Tree>& graph,
+                 beet::StatusTable<Tree>& table) {
+  auto status = table.listeners();
+  return beet::Listeners{
+      .on_tick_begin =
+          [&rec, status](std::uint64_t tick) {
+            rec.set_time_sequence("tick", static_cast<std::int64_t>(tick));
+            rec.set_time_duration_secs("sim_time",
+                                       static_cast<double>(tick) * control_dt);
+            status.on_tick_begin(tick);
+          },
+      .on_tick_end = [&graph, &table](
+                         std::uint64_t /*unused*/,
+                         beet::Status /*unused*/) { graph.log(table); },
+      .on_start = status.on_start,
+      .on_finish = status.on_finish,
+      .on_halt = status.on_halt};
+}
 
 }  // namespace
 
@@ -465,7 +463,7 @@ int main(int argc, char** argv) {
   using Tree = std::remove_cvref_t<decltype(tree)>;
   static_assert(beet::rate_v<Tree> == control_rate);
   const rerun_tree::GraphLogger<Tree> graph(*rec, "tree");
-  TickLogger<Tree> logger{.rec = *rec, .graph = graph};
-  beet::Runner runner{tree, config, logger};
+  beet::StatusTable<Tree> table;
+  beet::Runner runner{tree, config, tick_logger(*rec, graph, table)};
   runner.run();
 }

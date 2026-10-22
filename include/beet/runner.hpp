@@ -25,16 +25,16 @@
 namespace beet {
 
 namespace detail {
-template <class Obs>
+template <class Hooks>
 struct traced;  // defined in beet/observe.hpp
 
-template <class Obs>
-struct observer_slot {
-  Obs* observer;
+template <class Hooks>
+struct listener_slot {
+  Hooks listeners;
   std::uint64_t ticks = 0;
 };
 template <>
-struct observer_slot<void> {};
+struct listener_slot<void> {};
 
 class steady_pacer {
  public:
@@ -185,9 +185,9 @@ constexpr schedule_step<TimePoint> next_tick(schedule<TimePoint> sched,
 
 /// Owns a tree and its input, and drives it one tick at a time.
 ///
-/// `Runner<N>` runs the tree untraced. `Runner<N, Obs>` (constructed with an
-/// observer, see beet/observe.hpp) reports node events to `Obs`.
-template <node_type N, class Obs = void>
+/// `Runner<N>` runs the tree untraced. `Runner<N, Hooks>` (constructed with a
+/// `beet::Listeners`, see beet/observe.hpp) reports node events to its hooks.
+template <node_type N, class Hooks = void>
 class Runner {
  public:
   using input_type = input_t<N>;
@@ -197,17 +197,19 @@ class Runner {
   static constexpr std::size_t rate = N::rate;
 
   Runner(N tree, input_type input)
-    requires std::is_void_v<Obs>
+    requires std::is_void_v<Hooks>
       : tree_(std::move(tree)), input_(std::move(input)) {}
 
   explicit Runner(N tree)
-    requires std::is_void_v<Obs> && std::default_initializable<input_type>
+    requires std::is_void_v<Hooks> && std::default_initializable<input_type>
       : Runner(std::move(tree), input_type{}) {}
 
-  template <class O>
-    requires std::same_as<O, Obs>
-  Runner(N tree, input_type input, O& observer)
-      : tree_(std::move(tree)), input_(std::move(input)), slot_{&observer} {}
+  template <class L>
+    requires std::same_as<L, Hooks>
+  Runner(N tree, input_type input, L listeners)
+      : tree_(std::move(tree)),
+        input_(std::move(input)),
+        slot_{std::move(listeners)} {}
 
   Runner(const Runner&) = delete;
   Runner& operator=(const Runner&) = delete;
@@ -216,13 +218,13 @@ class Runner {
   /// suspended on `running`. Once the tree has finished, returns its final
   /// status without re-running it.
   Status tick() {
-    if constexpr (std::is_void_v<Obs>) {
+    if constexpr (std::is_void_v<Hooks>) {
       return advance(detail::untraced{});
     } else {
       const std::uint64_t tick = slot_.ticks++;
-      slot_.observer->on_tick_begin(tick);
-      const Status status = advance(detail::traced<Obs>{slot_.observer, 0});
-      slot_.observer->on_tick_end(tick, status);
+      slot_.listeners.on_tick_begin(tick);
+      const Status status = advance(detail::traced<Hooks>{&slot_.listeners, 0});
+      slot_.listeners.on_tick_end(tick, status);
       return status;
     }
   }
@@ -343,7 +345,7 @@ class Runner {
 
   N tree_;
   input_type input_;
-  [[no_unique_address]] detail::observer_slot<Obs> slot_;
+  [[no_unique_address]] detail::listener_slot<Hooks> slot_;
   std::optional<run_state> run_;
 };
 
@@ -351,7 +353,7 @@ template <class N, class I>
 Runner(N, I) -> Runner<N>;
 template <class N>
 Runner(N) -> Runner<N>;
-template <class N, class I, class O>
-Runner(N, I, O&) -> Runner<N, O>;
+template <class N, class I, class L>
+Runner(N, I, L) -> Runner<N, L>;
 
 }  // namespace beet

@@ -120,20 +120,29 @@ Current limitations:
 
 A tree's type already spells out its shape, so beet derives the structure at compile time rather than recording it at runtime. `beet::describe<Tree>()` returns a `constexpr` table with one entry per node, in depth-first order. Each entry holds the node's kind, label, parent, and the names of its input, output and error types. Labels are attached with `beet::named<"plan">(node)` and live only in the type.
 
-To watch a tree run, pass an observer to the `Runner`:
+To watch a tree run, pass `beet::Listeners` to the `Runner`, setting only the hooks you need:
 
 ```cpp
 #include "beet/observe.hpp"
 
-beet::StatusTable<decltype(tree)> table;  // latest status of every node, by ID
-beet::Runner runner{tree, input, table};
-runner.tick();
-table.status(5);                          // NodeStatus::Running
+beet::Runner runner{tree, input, beet::Listeners{
+    .on_finish = [](std::uint32_t id, beet::Status status) { /* ... */ },
+    .on_halt = [](std::uint32_t id) { /* ... */ },
+}};
 ```
 
-An observer is any type with `on_tick_begin`, `on_tick_end`, `on_start(id)`, `on_finish(id, status)` and `on_halt(id)`. At runtime it only receives integer node IDs; everything else comes from the static table. Halts are reported innermost first. If the tree uses a `ThreadPoolExecutor`, the observer must be thread-safe. `StatusTable` is.
+The hooks are `on_tick_begin(tick)`, `on_tick_end(tick, status)`, `on_start(id)`, `on_finish(id, status)` and `on_halt(id)`; any left unset compile to nothing. At runtime they only receive integer node IDs; everything else comes from the static table. Halts are reported innermost first. If the tree uses a `ThreadPoolExecutor`, the hooks must be thread-safe.
 
-**Tracing costs nothing unless you use it.** Every node runs through a trace parameter. A `Runner` without an observer passes an empty `untraced` value, and on that path every hook is discarded by `if constexpr`. The traced wrappers are only instantiated when a `Runner` is constructed with an observer, and `beet/observe.hpp` is not included by `beet/beet.hpp`. A CTest check runs `nm` on the untraced example binary and fails if any tracing symbols appear in it.
+`StatusTable` keeps the latest status of every node and provides its own hooks:
+
+```cpp
+beet::StatusTable<decltype(tree)> table;
+beet::Runner runner{tree, input, table.listeners()};
+runner.tick();
+table.status(5);  // NodeStatus::Running
+```
+
+**Tracing costs nothing unless you use it.** Every node runs through a trace parameter. A `Runner` without listeners passes an empty `untraced` value, and on that path every hook is discarded by `if constexpr`. The traced wrappers are only instantiated when a `Runner` is constructed with listeners, and `beet/observe.hpp` is not included by `beet/beet.hpp`. A CTest check runs `nm` on the untraced example binary and fails if any tracing symbols appear in it.
 
 Current limits:
 - **User coroutine leaves:** subtrees awaited inside a user coroutine leaf (`co_await subtree(x)`) are reported as part of that leaf.

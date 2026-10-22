@@ -163,7 +163,7 @@ TEST_CASE("tick-based decorators count the ticks of their region") {
   CHECK(seen == std::vector{0, 4});
 }
 
-TEST_CASE("observers see rate nodes") {
+TEST_CASE("listeners see rate nodes") {
   int now = 0;
   std::vector<int> seen;
   auto tree = beet::rate<2>(beet::rate<1>(recorder(seen, now, 2)));
@@ -173,7 +173,7 @@ TEST_CASE("observers see rate nodes") {
   static_assert(beet::tree_info<Tree>[2].kind == "leaf");
 
   beet::StatusTable<Tree> table;
-  beet::Runner runner{tree, beet::unit{}, table};
+  beet::Runner runner{tree, beet::unit{}, table.listeners()};
   CHECK(runner.tick() == Status::Running);
   CHECK(table.status(2) == beet::NodeStatus::Running);
   CHECK(runner.tick() == Status::Running);

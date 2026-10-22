@@ -367,8 +367,8 @@ auto finally(N child, F fn) {
       I{std::move(inner), std::move(fn)});
 }
 
-/// Labels a node for observers, e.g. `named<"plan">(plan_path)`. The label
-/// lives only in the type.
+/// Labels a node in `describe`'s output, e.g. `named<"plan">(plan_path)`. The
+/// label lives only in the type.
 template <detail::fixed_string Label, class N>
 auto named(N child) {
   auto inner = node(std::move(child));

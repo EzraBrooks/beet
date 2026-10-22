@@ -252,7 +252,7 @@ struct lift_impl {
   }
 };
 
-/// Trace used when no observer is attached. Every tracing hook on this path
+/// Trace used when no listeners are attached. Every tracing hook on this path
 /// compiles to nothing.
 struct untraced {
   template <std::size_t Offset>
@@ -262,7 +262,7 @@ struct untraced {
 };
 
 /// Trace inside a region ticked `Rate` times per period, wrapping the
-/// observer's trace (or `untraced`).
+/// listeners' trace (or `untraced`).
 template <std::size_t Rate, class Inner>
 struct rated {
   static constexpr std::size_t rate = Rate;
@@ -457,7 +457,7 @@ class Node {
   }
 
   /// Runs the node under `trace`. Only traces other than `untraced` report
-  /// events to an observer.
+  /// events to listeners.
   template <class Trace>
   Task<result_type> run(In in, Trace trace) const {
     if constexpr (is_sync) {
