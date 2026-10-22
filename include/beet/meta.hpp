@@ -29,13 +29,14 @@ inline constexpr bool is_variant_v = specialization_of<T, std::variant>;
 template <class T>
 inline constexpr bool is_result_v = specialization_of<T, tl::expected>;
 
+template <class... Ts>
+inline constexpr bool dependent_false_v = false;
+
 template <class T, class List>
-struct contains;
+inline constexpr bool contains_v = false;
 template <class T, class... Ts>
-struct contains<T, type_list<Ts...>>
-    : std::bool_constant<(std::is_same_v<T, Ts> || ...)> {};
-template <class T, class List>
-inline constexpr bool contains_v = contains<T, List>::value;
+inline constexpr bool contains_v<T, type_list<Ts...>> =
+    (std::is_same_v<T, Ts> || ...);
 
 template <class... Lists>
 struct concat {
@@ -95,10 +96,10 @@ struct remove_all<type_list<Ts...>, Remove>
                                 type_list<Ts>>...> {};
 
 template <class Sub, class Super>
-struct is_subset;
+inline constexpr bool is_subset_v = false;
 template <class... Ts, class Super>
-struct is_subset<type_list<Ts...>, Super>
-    : std::bool_constant<(contains_v<Ts, Super> && ...)> {};
+inline constexpr bool is_subset_v<type_list<Ts...>, Super> =
+    (contains_v<Ts, Super> && ...);
 
 }  // namespace detail
 
@@ -122,7 +123,7 @@ using error_remove_t = typename detail::from_list<typename detail::remove_all<
 
 template <class Sub, class Super>
 inline constexpr bool error_subset_v =
-    detail::is_subset<set_list_t<Sub>, set_list_t<Super>>::value;
+    detail::is_subset_v<set_list_t<Sub>, set_list_t<Super>>;
 
 template <class E, class Set>
 inline constexpr bool error_contains_v = detail::contains_v<E, set_list_t<Set>>;
@@ -135,7 +136,7 @@ template <class To, class From>
 To coerce(From&& value) {
   using F = std::remove_cvref_t<From>;
   if constexpr (std::is_same_v<F, never>) {
-    std::abort();
+    std::abort();  // unreachable: `never` has no values
   } else if constexpr (std::is_same_v<F, To>) {
     return std::forward<From>(value);
   } else if constexpr (is_variant_v<To> && contains_v<F, set_list_t<To>>) {
@@ -172,7 +173,7 @@ struct callable_traits<R (C::*)(A...) const noexcept>
 
 template <class Args>
 struct input_from_args {
-  static_assert(sizeof(Args) == 0,
+  static_assert(dependent_false_v<Args>,
                 "beet: a node callable must take zero or one argument");
 };
 template <>

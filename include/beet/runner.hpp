@@ -140,7 +140,7 @@ class Runner {
       : Runner(std::move(tree), input_type{}) {}
 
   template <class O>
-    requires std::is_same_v<O, Obs>
+    requires std::same_as<O, Obs>
   Runner(N tree, input_type input, O& observer)
       : tree_(std::move(tree)), input_(std::move(input)), slot_{&observer} {}
 
