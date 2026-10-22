@@ -8,12 +8,11 @@
 #include <cstdint>
 #include <cstdio>  // IWYU pragma: keep
 #include <cstdlib>
+#include <format>
 #include <functional>
-#include <iomanip>
 #include <iostream>
 #include <mutex>
 #include <optional>
-#include <sstream>
 #include <stdexcept>
 #include <stop_token>
 #include <thread>
@@ -91,13 +90,11 @@ class OverrunWarning {
     if (last_warned_ && now - *last_warned_ < seconds{1}) {
       return;
     }
-    // Formatted on the side so `std::clog`'s own format state is untouched.
-    std::ostringstream line;
-    line << std::fixed << std::setprecision(3) << "beet: " << pending_.ticks
-         << " tick(s) overran the " << millis(overrun.interval).count()
-         << "ms tick interval (worst +" << millis(pending_.worst).count()
-         << "ms, " << pending_.missed << " further deadline(s) missed)\n";
-    std::clog << line.view();
+    std::clog << std::format(
+        "beet: {} tick(s) overran the {:.3f}ms tick interval (worst +{:.3f}ms, "
+        "{} further deadline(s) missed)\n",
+        pending_.ticks, millis(overrun.interval).count(),
+        millis(pending_.worst).count(), pending_.missed);
     last_warned_ = now;
     pending_ = {};
   }

@@ -1,5 +1,6 @@
 #include <chrono>
-#include <cstdio>
+#include <format>
+#include <iostream>
 
 #include "robot_mission.hpp"
 
@@ -13,9 +14,9 @@ int main() {
   constexpr auto period = 100ms;
 
   for (mission::Pose goal : mission::goals) {
-    std::printf("goal (%.0f, %.0f):\n", goal.x, goal.y);
+    std::cout << std::format("goal ({:.0f}, {:.0f}):\n", goal.x, goal.y);
     beet::Runner runner{tree, goal};
     runner.run(period);
-    std::printf("  %s\n", runner.result()->text.c_str());
+    std::cout << std::format("  {}\n", runner.result()->text);
   }
 }
