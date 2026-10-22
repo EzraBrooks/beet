@@ -284,6 +284,33 @@ TEST_CASE("OverrunWarning writes at most one line per second to std::clog") {
         "further deadline(s) missed)\n");
 }
 
+TEST_CASE("next_tick computes the schedule from the time alone") {
+  using time_point = std::chrono::steady_clock::time_point;
+  const time_point start{};
+  const beet::detail::schedule<time_point> sched{
+      .period = std::chrono::seconds{1},
+      .ticks_per_period = 10,
+      .anchor = start,
+      .anchor_slot = 0,
+      .slot = 0,
+      .behind_until = 0};
+
+  const auto on_time = beet::detail::next_tick(
+      sched, 0, start + milliseconds(40), beet::MissedTick::Skip);
+  CHECK_FALSE(on_time.late);
+  CHECK_FALSE(on_time.overrun);
+  CHECK(on_time.next.deadline(on_time.next.slot) == start + milliseconds(100));
+
+  // Tick 1 ends at 350ms, past the deadlines at 200ms and 300ms.
+  const auto late = beet::detail::next_tick(
+      on_time.next, 1, start + milliseconds(350), beet::MissedTick::Skip);
+  CHECK(late.late);
+  REQUIRE(late.overrun);
+  CHECK(late.overrun->late == milliseconds(150));
+  CHECK(late.overrun->missed == 1);
+  CHECK(late.next.deadline(late.next.slot) == start + milliseconds(300));
+}
+
 TEST_CASE("Burst reports a tick that overruns while catching up") {
   // Tick 1 ends at 350ms, one deadline behind. Tick 2 catches up but ends at
   // 650ms, missing the deadlines at 400ms, 500ms and 600ms as well.

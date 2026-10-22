@@ -118,6 +118,71 @@ struct RunOptions {
   std::function<void(const Overrun&)> on_overrun = OverrunWarning{};
 };
 
+namespace detail {
+
+/// Where `Runner::run()` is in its fixed-rate schedule. Slot `n` is due
+/// `n - anchor_slot` intervals after `anchor`.
+template <class TimePoint>
+struct schedule {
+  std::chrono::nanoseconds period;
+  std::int64_t ticks_per_period;
+  TimePoint anchor;
+  std::uint64_t anchor_slot;
+  std::uint64_t slot;          // the next tick's slot
+  std::uint64_t behind_until;  // while bursting, the last slot known missed
+
+  // Exact for any period, so the schedule never accumulates rounding error.
+  [[nodiscard]] constexpr TimePoint deadline(std::uint64_t at) const {
+    const auto since = static_cast<std::int64_t>(at - anchor_slot);
+    return anchor + (since / ticks_per_period) * period +
+           (since % ticks_per_period) * period / ticks_per_period;
+  }
+};
+
+template <class TimePoint>
+struct schedule_step {
+  schedule<TimePoint> next;
+  std::optional<Overrun> overrun;  // a new overrun to report
+  bool late;                       // the next tick is already due
+};
+
+/// The schedule after tick number `ticked` ends at `now`.
+template <class TimePoint>
+constexpr schedule_step<TimePoint> next_tick(schedule<TimePoint> sched,
+                                             std::uint64_t ticked,
+                                             TimePoint now, MissedTick policy) {
+  ++sched.slot;
+  const TimePoint due = sched.deadline(sched.slot);
+  if (now <= due) {
+    return {.next = sched, .overrun = std::nullopt, .late = false};
+  }
+  // While bursting, deadlines up to `behind_until` are already known to be
+  // missed, so only deadlines past them count as a new overrun.
+  const std::uint64_t known = std::max(sched.slot, sched.behind_until);
+  std::uint64_t last_due = known;
+  while (sched.deadline(last_due + 1) <= now) {
+    ++last_due;
+  }
+  std::optional<Overrun> overrun;
+  if (last_due > sched.behind_until) {
+    overrun = Overrun{.tick = ticked,
+                      .late = now - due,
+                      .missed = last_due - known,
+                      .interval = sched.period / sched.ticks_per_period};
+  }
+  switch (policy) {
+    case MissedTick::Burst: sched.behind_until = last_due; break;
+    case MissedTick::Delay:
+      sched.anchor = now;
+      sched.anchor_slot = sched.slot;
+      break;
+    case MissedTick::Skip: sched.slot = last_due; break;
+  }
+  return {.next = sched, .overrun = overrun, .late = true};
+}
+
+}  // namespace detail
+
 /// Owns a tree and its input, and drives it one tick at a time.
 ///
 /// `Runner<N>` runs the tree untraced. `Runner<N, Obs>` (constructed with an
@@ -178,19 +243,13 @@ class Runner {
     static_assert(rate != 0,
                   "beet: Runner::run() needs a tree with a rate; wrap the root "
                   "in beet::rate<K>()");
-    constexpr auto ticks_per_period = static_cast<std::int64_t>(rate);
-    const auto interval = period / ticks_per_period;
-    auto anchor = pacer.now();
-    std::uint64_t anchor_slot = 0;
-    // Exact for any period, so the schedule never accumulates rounding error.
-    const auto deadline = [&](std::uint64_t slot) {
-      const auto since = static_cast<std::int64_t>(slot - anchor_slot);
-      return anchor + (since / ticks_per_period) * period +
-             (since % ticks_per_period) * period / ticks_per_period;
-    };
-
-    std::uint64_t slot = 0;
-    std::uint64_t behind_until = 0;
+    detail::schedule<decltype(pacer.now())> sched{
+        .period = period,
+        .ticks_per_period = static_cast<std::int64_t>(rate),
+        .anchor = pacer.now(),
+        .anchor_slot = 0,
+        .slot = 0,
+        .behind_until = 0};
     for (std::uint64_t ticked = 0;; ++ticked) {
       const Status status = tick();
       if (status != Status::Running) {
@@ -199,31 +258,16 @@ class Runner {
       if (options.stop.stop_requested()) {
         return Status::Running;
       }
-      ++slot;
-      const auto now = pacer.now();
-      if (now > deadline(slot)) {
-        // While bursting, deadlines up to `behind_until` are already known to
-        // be missed, so only deadlines past them count as a new overrun.
-        std::uint64_t last_due = std::max(slot, behind_until);
-        while (deadline(last_due + 1) <= now) {
-          ++last_due;
-        }
-        if (last_due > behind_until && options.on_overrun) {
-          options.on_overrun(Overrun{ticked, now - deadline(slot),
-                                     last_due - std::max(slot, behind_until),
-                                     interval});
-        }
-        switch (options.missed_tick) {
-          case MissedTick::Burst: behind_until = last_due; break;
-          case MissedTick::Delay:
-            anchor = now;
-            anchor_slot = slot;
-            break;
-          case MissedTick::Skip: slot = last_due; break;
-        }
+      const auto step =
+          detail::next_tick(sched, ticked, pacer.now(), options.missed_tick);
+      sched = step.next;
+      if (step.overrun && options.on_overrun) {
+        options.on_overrun(*step.overrun);
+      }
+      if (step.late) {
         continue;
       }
-      pacer.sleep_until(deadline(slot), options.stop);
+      pacer.sleep_until(sched.deadline(sched.slot), options.stop);
       if (options.stop.stop_requested()) {
         return Status::Running;
       }
