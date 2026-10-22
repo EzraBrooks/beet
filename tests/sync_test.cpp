@@ -1,6 +1,8 @@
 #include <doctest/doctest.h>
 
+#include <cstdint>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #include "beet/beet.hpp"

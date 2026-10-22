@@ -1,6 +1,7 @@
 #include <doctest/doctest.h>
 
 #include <optional>
+#include <type_traits>
 #include <utility>
 #include <variant>
 

@@ -3,6 +3,7 @@
 //
 // Usage: tick_rate [min_ticks_per_second]
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <format>
@@ -20,7 +21,9 @@ struct TooFar {
 };
 
 Result<int, TooFar> check(int x) {
-  if (x > 1000) return beet::make_unexpected(TooFar{x});
+  if (x > 1000) {
+    return beet::make_unexpected(TooFar{x});
+  }
   return x;
 }
 
@@ -81,7 +84,7 @@ double best_rate(const char* name, const Tree& tree, long long& sink) {
         measure_ticks_per_second(tree, std::chrono::milliseconds(200), sink);
     std::cout << std::format("{} trial {}: {:.3g} ticks/s\n", name, t + 1,
                              rate);
-    if (rate > best) best = rate;
+    best = std::max(best, rate);
   }
   std::cout << std::format("{} best: {:.3g} ticks/s ({:.1f} ns/tick)\n", name,
                            best, 1e9 / best);

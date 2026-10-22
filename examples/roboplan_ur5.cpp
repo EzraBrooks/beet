@@ -19,20 +19,32 @@
 #include <memory>
 #include <numbers>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
+#include <Eigen/Core>
 #include <Eigen/Dense>
-#include <pinocchio/multibody/data.hpp>  // IWYU pragma: keep
+#include <pinocchio/multibody.hpp>
 #include <rerun.hpp>
+#include <rerun/archetypes/coordinate_frame.hpp>
+#include <rerun/archetypes/scalars.hpp>
+#include <rerun/archetypes/text_log.hpp>
+#include <rerun/components/fill_mode.hpp>
+#include <rerun/components/line_strip3d.hpp>
+#include <rerun/recording_stream.hpp>
 #include <roboplan/core/path_utils.hpp>
 #include <roboplan/core/scene.hpp>
+#include <roboplan/core/types.hpp>
 #include <roboplan_example_models/resources.hpp>
 #include <roboplan_rrt/rrt.hpp>
 #include <roboplan_toppra/toppra.hpp>
 
 #include "beet/beet.hpp"
+#include "beet/observe.hpp"
 #include "rerun_tree.hpp"
 
 namespace {
@@ -100,9 +112,13 @@ class Robot {
         q_(std::move(q)) {
     const auto& frames = scene_->getModel().frames;
     for (const auto& child : frames) {
-      if (child.type != pinocchio::BODY) continue;
+      if (child.type != pinocchio::BODY) {
+        continue;
+      }
       const auto& joint = frames[child.parentFrame];
-      if (joint.type != pinocchio::JOINT) continue;
+      if (joint.type != pinocchio::JOINT) {
+        continue;
+      }
       joints_.push_back(
           {joint.name, frames[joint.parentFrame].name, child.name});
     }
@@ -118,6 +134,7 @@ class Robot {
       const Eigen::Matrix4d tf =
           scene_->forwardKinematics(data_, q_, j.child, j.parent);
       const Eigen::Matrix3f r = tf.topLeftCorner<3, 3>().cast<float>();
+      // NOLINTNEXTLINE(modernize-avoid-c-arrays)
       const rerun::Vec3D columns[3] = {{r(0, 0), r(1, 0), r(2, 0)},
                                        {r(0, 1), r(1, 1), r(2, 1)},
                                        {r(0, 2), r(1, 2), r(2, 2)}};
@@ -201,7 +218,7 @@ Cell open_cell(Config config) {
   constexpr double floor_thickness = 1.0;
   constexpr double floor_top = -0.005;
   Eigen::Matrix4d floor_tf = Eigen::Matrix4d::Identity();
-  floor_tf(2, 3) = floor_top - floor_thickness / 2;
+  floor_tf(2, 3) = floor_top - (floor_thickness / 2);
   if (auto ok = scene->addBoxGeometry(
           "floor", "world",
           roboplan::Box(floor_size, floor_size, floor_thickness), floor_tf,
@@ -220,21 +237,22 @@ Cell open_cell(Config config) {
   roboplan::PathShortcuttingOptions shortcut_options;
   shortcut_options.group_name = group;
   shortcut_options.max_step_size = rrt_options.collision_check_step_size;
-  auto planner = std::make_shared<Planner>(
-      Planner{scene, roboplan::RRT(scene, rrt_options),
-              roboplan::PathShortcutter(scene, shortcut_options),
-              roboplan::PathParameterizerTOPPRA(scene, std::string(group))});
+  auto planner = std::make_shared<Planner>(Planner{
+      .scene = scene,
+      .rrt = roboplan::RRT(scene, rrt_options),
+      .shortcutter = roboplan::PathShortcutter(scene, shortcut_options),
+      .toppra = roboplan::PathParameterizerTOPPRA(scene, std::string(group))});
   planner->rrt.setRngSeed(config.seed);
 
   // Rerun resolves the URDF's package:// mesh URIs through ROS_PACKAGE_PATH.
-  setenv("ROS_PACKAGE_PATH", share.c_str(), 1);
+  setenv("ROS_PACKAGE_PATH", share.c_str(), 1);  // NOLINT(misc-include-cleaner)
   config.rec->log_file_from_path(models / "ur5_gripper.urdf", "world/robot",
                                  true);
-  const float half = static_cast<float>(floor_size / 2);
+  const auto half = static_cast<float>(floor_size / 2);
   config.rec->log_static(
       "world/floor",
       rerun::Boxes3D::from_centers_and_half_sizes(
-          {{0.0f, 0.0f, static_cast<float>(floor_tf(2, 3))}},
+          {{0.0F, 0.0F, static_cast<float>(floor_tf(2, 3))}},
           {{half, half, static_cast<float>(floor_thickness / 2)}})
           .with_colors({rerun::Color(150, 150, 150)})
           .with_fill_mode(rerun::components::FillMode::Solid),
@@ -251,38 +269,46 @@ Cell open_cell(Config config) {
   home_arm << 0.0, -pi / 2, pi / 2, -pi / 2, -pi / 2, 0.0;
   const Eigen::VectorXd home =
       scene->toFullJointPositions(std::string(group), home_arm);
-  if (scene->hasCollisions(home))
+  if (scene->hasCollisions(home)) {
     throw std::runtime_error("home pose is in collision");
+  }
   auto robot = std::make_shared<Robot>(scene, home);
-  return Cell{std::move(config), Trajectories{}, std::move(robot),
-              std::move(planner)};
+  return Cell{.config = std::move(config),
+              .trajectories = Trajectories{},
+              .robot = std::move(robot),
+              .planner = std::move(planner)};
 }
 
 Result<PlanRequest, PlanningFailed> choose_goal(Cell cell) {
   auto& scene = *cell.planner->scene;
   const auto goal = scene.randomCollisionFreePositions();
-  if (!goal)
+  if (!goal) {
     return beet::make_unexpected(PlanningFailed{"no collision-free goal"});
+  }
   cell.config.rec->log("world/plan/goal",
                        rerun::Points3D({to_position(scene.forwardKinematics(
                                            *goal, std::string(tool)))})
-                           .with_radii({0.03f})
+                           .with_radii({0.03F})
                            .with_colors({rerun::Color(240, 190, 40)}));
   const Eigen::VectorXi arm =
       scene.getJointGroupInfo(std::string(group))->q_indices;
   Eigen::VectorXd start = cell.robot->arm();
-  return PlanRequest{std::move(cell), std::move(start), (*goal)(arm)};
+  return PlanRequest{
+      .cell = std::move(cell), .start = std::move(start), .goal = (*goal)(arm)};
 }
 
 // Runs on its own thread, so it computes forward kinematics with private
 // pinocchio data.
 Result<Planned, PlanningFailed> plan_rrt(PlanRequest req) {
   auto& planner = *req.cell.planner;
-  roboplan::JointConfiguration start, goal;
+  roboplan::JointConfiguration start;
+  roboplan::JointConfiguration goal;
   start.positions = req.start;
   goal.positions = req.goal;
   auto path = planner.rrt.plan(start, goal);
-  if (!path) return beet::make_unexpected(PlanningFailed{path.error()});
+  if (!path) {
+    return beet::make_unexpected(PlanningFailed{path.error()});
+  }
 
   pinocchio::Data data(planner.scene->getModel());
   std::vector<rerun::Position3D> tree_points;
@@ -293,19 +319,22 @@ Result<Planned, PlanningFailed> plan_rrt(PlanRequest req) {
           planner.scene->forwardKinematics(data, n.config, std::string(tool))));
     }
   }
-  return Planned{std::move(req.cell), planner.shortcutter.shortcut(*path),
-                 std::move(tree_points)};
+  return Planned{.cell = std::move(req.cell),
+                 .path = planner.shortcutter.shortcut(*path),
+                 .tree_points = std::move(tree_points)};
 }
 
 Result<beet::Call<JointTrajectory, Result<ExecutionReport, StartMismatch>>,
        ParameterizationFailed>
-parameterize(Planned planned) {
+parameterize(Planned planned) {  // NOLINT(performance-unnecessary-value-param)
   const Config& config = planned.cell.config;
   auto& planner = *planned.cell.planner;
   roboplan::TOPPRAOptions options;
   options.dt = control_dt;
   auto traj = planner.toppra.generate(planned.path, options);
-  if (!traj) return beet::make_unexpected(ParameterizationFailed{traj.error()});
+  if (!traj) {
+    return beet::make_unexpected(ParameterizationFailed{traj.error()});
+  }
 
   std::vector<rerun::Position3D> ee_path;
   for (const auto& q : traj->positions) {
@@ -317,12 +346,12 @@ parameterize(Planned planned) {
                   rerun::LineStrips3D({rerun::components::LineStrip3D(ee_path)})
                       .with_colors({rerun::Color(80, 160, 240)}));
   config.rec->log("world/plan/rrt_nodes",
-                  rerun::Points3D(planned.tree_points).with_radii({0.008f}));
+                  rerun::Points3D(planned.tree_points).with_radii({0.008F}));
   log_event(config, "planned " + std::to_string(planned.path.positions.size()) +
                         " waypoints, " + std::to_string(traj->times.back()) +
                         " s trajectory");
   return beet::Call<JointTrajectory, Result<ExecutionReport, StartMismatch>>{
-      planned.cell.trajectories, std::move(*traj)};
+      .channel = planned.cell.trajectories, .request = std::move(*traj)};
 }
 
 // Serves trajectories forever: one trajectory point per tick, since TOPP-RA
@@ -350,8 +379,8 @@ Task<Result<beet::never, beet::never>> controller(Cell cell) {
       cell.robot->set_arm(traj.positions[step]);
       if (++step == traj.positions.size()) {
         log_event(cell.config, "trajectory done");
-        active->reply(
-            ExecutionReport{traj.times.back(), traj.positions.size()});
+        active->reply(ExecutionReport{.duration = traj.times.back(),
+                                      .points = traj.positions.size()});
         active.reset();
       }
     }
@@ -362,7 +391,7 @@ Task<Result<beet::never, beet::never>> controller(Cell cell) {
 
 // Recover handlers only see the error, so the stream they log to is captured
 // when the tree is built.
-auto make_tree(std::shared_ptr<const rerun::RecordingStream> rec) {
+auto make_tree(const std::shared_ptr<const rerun::RecordingStream>& rec) {
   auto skip_goal = [rec](const auto& e) {
     rec->log("log", rerun::TextLog("skipping goal: " + describe(e))
                         .with_level(rerun::TextLogLevel::Warning));
@@ -410,14 +439,18 @@ struct TickLogger {
 
 }  // namespace
 
+// NOLINTNEXTLINE(bugprone-exception-escape)
 int main(int argc, char** argv) {
   std::optional<std::string> save;
   Config config;
   for (int i = 1; i + 1 < argc; i += 2) {
     const std::string_view flag = argv[i];
-    if (flag == "--save") save = argv[i + 1];
-    if (flag == "--seed")
+    if (flag == "--save") {
+      save = argv[i + 1];
+    }
+    if (flag == "--seed") {
       config.seed = static_cast<unsigned>(std::stoul(argv[i + 1]));
+    }
   }
 
   auto rec = std::make_shared<rerun::RecordingStream>("beet_roboplan_ur5");
@@ -432,7 +465,7 @@ int main(int argc, char** argv) {
   using Tree = std::remove_cvref_t<decltype(tree)>;
   static_assert(beet::rate_v<Tree> == control_rate);
   const rerun_tree::GraphLogger<Tree> graph(*rec, "tree");
-  TickLogger<Tree> logger{*rec, graph};
+  TickLogger<Tree> logger{.rec = *rec, .graph = graph};
   beet::Runner runner{tree, config, logger};
   runner.run();
 }

@@ -56,6 +56,17 @@
       }
     },
     {
+      "name": "lint",
+      "displayName": "Debug build of every target, for clang-tidy",
+      "inherits": "dev",
+      "binaryDir": "${sourceDir}/build-lint",
+      "cacheVariables": {
+        "BEET_BUILD_RERUN_EXAMPLE": "ON",
+        "BEET_BUILD_ROBOPLAN_EXAMPLE": "ON",
+        "BEET_BUILD_BENCHMARKS": "ON"
+      }
+    },
+    {
       "name": "package",
       "displayName": "Install beet to a local prefix the way a packager would",
       "inherits": "base",

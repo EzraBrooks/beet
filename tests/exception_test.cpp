@@ -1,6 +1,7 @@
 #include <doctest/doctest.h>
 
 #include <stdexcept>
+#include <type_traits>
 #include <variant>
 
 #include "beet/beet.hpp"

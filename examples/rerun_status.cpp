@@ -5,15 +5,22 @@
 //   ./rerun_status --save mission.rrd               # writes a recording
 //   instead
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <type_traits>
 
 #include <rerun.hpp>  // IWYU pragma: keep
+#include <rerun/archetypes/text_log.hpp>
+#include <rerun/recording_stream.hpp>
 
+#include "beet/beet.hpp"
+#include "beet/observe.hpp"
 #include "rerun_tree.hpp"
 #include "robot_mission.hpp"
 
+// NOLINTNEXTLINE(bugprone-exception-escape)
 int main(int argc, char** argv) {
   const auto tree = mission::make_mission();
   using Tree = std::remove_cvref_t<decltype(tree)>;

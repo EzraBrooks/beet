@@ -3,9 +3,11 @@
 #include <atomic>
 #include <chrono>
 #include <future>
+#include <memory>
 #include <stdexcept>
 #include <stop_token>
 #include <thread>
+#include <type_traits>
 #include <variant>
 
 #include "beet/beet.hpp"
