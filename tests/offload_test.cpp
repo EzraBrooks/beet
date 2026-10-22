@@ -1,7 +1,6 @@
 #include <doctest/doctest.h>
 
 #include <atomic>
-#include <chrono>
 #include <future>
 #include <memory>
 #include <stdexcept>
@@ -77,7 +76,7 @@ TEST_CASE("offload keeps ticking while the job is still working") {
   CHECK(runner.result().value() == 5);
 }
 
-TEST_CASE("halting an offloaded job requests a stop") {
+TEST_CASE("halting an offloaded job stops it and waits for it to return") {
   auto stopped = std::make_shared<std::atomic<bool>>(false);
   // NOLINTNEXTLINE(performance-unnecessary-value-param)
   beet::Runner runner{beet::offload([stopped](int, std::stop_token stop) {
@@ -91,10 +90,21 @@ TEST_CASE("halting an offloaded job requests a stop") {
 
   CHECK(runner.tick() == Status::Running);
   runner.halt();
-  const auto deadline =
-      std::chrono::steady_clock::now() + std::chrono::seconds(5);
-  while (!stopped->load() && std::chrono::steady_clock::now() < deadline) {
-    std::this_thread::yield();
+  CHECK(stopped->load());
+}
+
+TEST_CASE("destroying the runner stops and joins an offloaded job") {
+  auto stopped = std::make_shared<std::atomic<bool>>(false);
+  {
+    // NOLINTNEXTLINE(performance-unnecessary-value-param)
+    beet::Runner runner{beet::offload([stopped](std::stop_token stop) {
+                          while (!stop.stop_requested()) {
+                            std::this_thread::yield();
+                          }
+                          stopped->store(true);
+                        }),
+                        beet::unit{}};
+    CHECK(runner.tick() == Status::Running);
   }
   CHECK(stopped->load());
 }

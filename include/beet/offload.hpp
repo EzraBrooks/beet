@@ -2,7 +2,6 @@
 
 #include <atomic>
 #include <exception>
-#include <memory>
 #include <optional>
 #include <stop_token>
 #include <thread>
@@ -44,7 +43,6 @@ decltype(auto) invoke_job(const F& fn, In&& in, const std::stop_token& stop) {
 
 template <class R>
 struct offload_state {
-  std::stop_source stop;
   std::atomic<bool> done{false};
   std::optional<R> value;
   std::exception_ptr exception;
@@ -54,8 +52,8 @@ struct offload_state {
 
 /// Runs `fn` on its own thread so slow work does not stall the tick; the node
 /// stays running until `fn` returns. `fn` may take a trailing
-/// `std::stop_token`, which is stopped when the node is halted. A halted job
-/// still runs to completion on its thread, and its result is dropped.
+/// `std::stop_token`, which is stopped when the node is halted. Halting waits
+/// for `fn` to return, so long-running jobs should poll the token.
 template <class F>
 auto offload(F fn) {
   using In = typename detail::offload_input<
@@ -71,41 +69,39 @@ auto offload(F fn) {
   using State = detail::offload_state<Result<Out, Err>>;
 
   return node<In>([fn = std::move(fn)](In in) -> Task<Result<Out, Err>> {
-    auto state = std::make_shared<State>();
-    std::thread([state, fn, in = std::move(in)]() mutable {
-      auto job = [&] {
-        if constexpr (std::is_void_v<R>) {
-          detail::invoke_job(fn, std::move(in), state->stop.get_token());
-          state->value.emplace(Out{});
-        } else {
-          state->value.emplace(detail::to_result<Out, Err>(
-              detail::invoke_job(fn, std::move(in), state->stop.get_token())));
-        }
-      };
+    State state;
+    // Declared after `state`: destroying the frame stops and joins the worker
+    // before `state` goes away.
+    std::jthread worker(
+        [&state, fn, in = std::move(in)](const std::stop_token& stop) mutable {
+          auto job = [&] {
+            if constexpr (std::is_void_v<R>) {
+              detail::invoke_job(fn, std::move(in), stop);
+              state.value.emplace(Out{});
+            } else {
+              state.value.emplace(detail::to_result<Out, Err>(
+                  detail::invoke_job(fn, std::move(in), stop)));
+            }
+          };
 #if BEET_EXCEPTIONS
-      try {
-        job();
-      } catch (...) {
-        state->exception = std::current_exception();
-      }
+          try {
+            job();
+          } catch (...) {
+            state.exception = std::current_exception();
+          }
 #else
-      job();
+          job();
 #endif
-      state->done.store(true, std::memory_order_release);
-    }).detach();
+          state.done.store(true, std::memory_order_release);
+        });
 
-    struct stop_on_exit {
-      std::stop_source stop;
-      ~stop_on_exit() { stop.request_stop(); }
-    } guard{state->stop};
-
-    while (!state->done.load(std::memory_order_acquire)) {
+    while (!state.done.load(std::memory_order_acquire)) {
       co_await running;
     }
-    if (state->exception) {
-      std::rethrow_exception(state->exception);
+    if (state.exception) {
+      std::rethrow_exception(state.exception);
     }
-    co_return std::move(*state->value);
+    co_return std::move(*state.value);
   });
 }
 

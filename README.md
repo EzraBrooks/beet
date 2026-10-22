@@ -106,7 +106,7 @@ A rate has no unit. `rate<K>(node)` means "`K` ticks per period", and the period
 
 ## Long-running work and concurrent branches
 
-`beet::offload(fn)` runs a plain function on its own thread and stays running until it returns, so slow work such as motion planning does not stall the tick. `fn` may take a trailing `std::stop_token`, which is stopped if the node is halted. Cancellation is cooperative: halting destroys the node right away, but the thread only receives a stop request, because C++ has no safe way to kill a thread.
+`beet::offload(fn)` runs a plain function on its own thread and stays running until it returns, so slow work such as motion planning does not stall the tick. `fn` may take a trailing `std::stop_token`, which is stopped if the node is halted. The thread is a `std::jthread` owned by the running node, so cancellation is cooperative: halting requests a stop and then waits for `fn` to return, because C++ has no safe way to kill a thread. Functions that run for long should poll the token.
 
 `beet::Channel<Req, Reply>` links branches that run side by side, such as a planner and a controller under `parallel_any`. `Channel::call()` is a node that takes a `beet::Call{channel, request}`, waits for the reply, and fails with the reply's errors when `Reply` is a `Result`. The server takes requests with `try_receive()` and answers with `reply()`; halting the caller cancels its request.
 
