@@ -4,8 +4,9 @@
 // Usage: tick_rate [min_ticks_per_second]
 
 #include <chrono>
-#include <cstdio>
 #include <cstdlib>
+#include <format>
+#include <iostream>
 
 #include "beet/beet.hpp"
 
@@ -78,10 +79,12 @@ double best_rate(const char* name, const Tree& tree, long long& sink) {
   for (int t = 0; t < trials; ++t) {
     const double rate =
         measure_ticks_per_second(tree, std::chrono::milliseconds(200), sink);
-    std::printf("%s trial %d: %.3g ticks/s\n", name, t + 1, rate);
+    std::cout << std::format("{} trial {}: {:.3g} ticks/s\n", name, t + 1,
+                             rate);
     if (rate > best) best = rate;
   }
-  std::printf("%s best: %.3g ticks/s (%.1f ns/tick)\n", name, best, 1e9 / best);
+  std::cout << std::format("{} best: {:.3g} ticks/s ({:.1f} ns/tick)\n", name,
+                           best, 1e9 / best);
   return best;
 }
 
@@ -93,10 +96,11 @@ int main(int argc, char** argv) {
   long long sink = 0;
   const double best = best_rate("mixed", make_mixed_tree(), sink);
   best_rate("sync", make_sync_tree(), sink);
-  std::printf("minimum (mixed): %.3g ticks/s, checksum %lld\n", minimum, sink);
+  std::cout << std::format("minimum (mixed): {:.3g} ticks/s, checksum {}\n",
+                           minimum, sink);
 
   if (best < minimum) {
-    std::printf("FAIL: tick rate is below the minimum\n");
+    std::cerr << "FAIL: tick rate is below the minimum\n";
     return EXIT_FAILURE;
   }
 }

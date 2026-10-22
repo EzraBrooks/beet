@@ -5,7 +5,8 @@
 
 #include <array>
 #include <cmath>
-#include <cstdio>
+#include <format>
+#include <iostream>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -80,7 +81,7 @@ inline Task<Result<Odom, Stuck>> drive(Path path) {
     }
     odom.distance += std::hypot(next.x - at.x, next.y - at.y);
     at = next;
-    std::printf("  drove to (%.1f, %.1f)\n", at.x, at.y);
+    std::cout << std::format("  drove to ({:.1f}, {:.1f})\n", at.x, at.y);
   }
   co_return odom;
 }

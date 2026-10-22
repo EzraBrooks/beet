@@ -3,7 +3,8 @@
 // in tl::expected and Threads, not to retest behavior the main suite already
 // covers.
 
-#include <cstdio>
+#include <format>
+#include <iostream>
 #include <string>
 
 #include "beet/beet.hpp"
@@ -48,6 +49,6 @@ std::string run(int input) {
 int main() {
   const std::string ok = run(4);
   const std::string recovered = run(2);
-  std::printf("%s / %s\n", ok.c_str(), recovered.c_str());
+  std::cout << std::format("{} / {}\n", ok, recovered);
   return (ok == "ok: 16" && recovered == "too small: 8") ? 0 : 1;
 }
