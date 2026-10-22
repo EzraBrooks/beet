@@ -4,8 +4,7 @@
 
 namespace beet::detail {
 
-/// Calls `fn` when the guard goes out of scope, unless `release()`d. Modeled on
-/// `std::experimental::scope_exit`.
+/// Calls `fn` when the guard goes out of scope, unless `release()`d.
 template <class F>
 class scope_exit {
  public:
