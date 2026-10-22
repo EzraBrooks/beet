@@ -41,13 +41,6 @@ decltype(auto) invoke_job(const F& fn, In&& in, const std::stop_token& stop) {
   }
 }
 
-template <class R>
-struct offload_state {
-  std::atomic<bool> done{false};
-  std::optional<R> value;
-  std::exception_ptr exception;
-};
-
 }  // namespace detail
 
 /// Runs `fn` on its own thread so slow work does not stall the tick; the node
@@ -66,42 +59,42 @@ auto offload(F fn) {
                 "to the tick");
   using Out = typename L::out;
   using Err = typename L::err;
-  using State = detail::offload_state<Result<Out, Err>>;
 
   return node<In>([fn = std::move(fn)](In in) -> Task<Result<Out, Err>> {
-    State state;
-    // Declared after `state`: destroying the frame stops and joins the worker
-    // before `state` goes away.
-    std::jthread worker(
-        [&state, fn, in = std::move(in)](const std::stop_token& stop) mutable {
-          auto job = [&] {
-            if constexpr (std::is_void_v<R>) {
-              detail::invoke_job(fn, std::move(in), stop);
-              state.value.emplace(Out{});
-            } else {
-              state.value.emplace(detail::to_result<Out, Err>(
-                  detail::invoke_job(fn, std::move(in), stop)));
-            }
-          };
+    std::atomic<bool> done{false};
+    std::optional<Result<Out, Err>> value;
+    std::exception_ptr exception;
+    // Declared last: destroying the frame stops and joins the worker before
+    // anything it refers to goes away.
+    std::jthread worker([&](const std::stop_token& stop) {
+      auto job = [&] {
+        if constexpr (std::is_void_v<R>) {
+          detail::invoke_job(fn, std::move(in), stop);
+          value.emplace(Out{});
+        } else {
+          value.emplace(detail::to_result<Out, Err>(
+              detail::invoke_job(fn, std::move(in), stop)));
+        }
+      };
 #if BEET_EXCEPTIONS
-          try {
-            job();
-          } catch (...) {
-            state.exception = std::current_exception();
-          }
+      try {
+        job();
+      } catch (...) {
+        exception = std::current_exception();
+      }
 #else
-          job();
+      job();
 #endif
-          state.done.store(true, std::memory_order_release);
-        });
+      done.store(true, std::memory_order_release);
+    });
 
-    while (!state.done.load(std::memory_order_acquire)) {
+    while (!done.load(std::memory_order_acquire)) {
       co_await running;
     }
-    if (state.exception) {
-      std::rethrow_exception(state.exception);
+    if (exception) {
+      std::rethrow_exception(exception);
     }
-    co_return std::move(*state.value);
+    co_return std::move(*value);
   });
 }
 

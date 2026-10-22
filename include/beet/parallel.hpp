@@ -78,21 +78,10 @@ struct runner_set {
                                           child_trace<Impl, I>(trace))...) {}
 };
 
+/// A stateless executor is held by value, so a temporary one cannot dangle;
+/// any other is referred to.
 template <class Exec>
-struct executor_handle {
-  explicit executor_handle(Exec& exec) : ptr(&exec) {}
-  [[nodiscard]] Exec& get() const { return *ptr; }
-
-  Exec* ptr;
-};
-template <class Exec>
-  requires std::is_empty_v<Exec>
-struct executor_handle<Exec> {
-  explicit executor_handle(const Exec& exec) : exec(exec) {}
-  [[nodiscard]] Exec& get() const { return exec; }
-
-  [[no_unique_address]] mutable Exec exec;
-};
+using executor_ref = std::conditional_t<std::is_empty_v<Exec>, Exec, Exec*>;
 
 /// `Exec` is the executor's concrete type, so its `bulk` call is direct and
 /// `InlineExecutor` needs no indirection at all.
@@ -107,7 +96,7 @@ struct parallel_impl {
   static constexpr std::size_t count = sizeof...(Cs);
 
   std::tuple<Cs...> nodes;
-  [[no_unique_address]] executor_handle<Exec> executor;
+  [[no_unique_address]] executor_ref<Exec> executor;
 
   template <class Trace>
   Task<R> run(In in, Trace trace) const {
@@ -126,19 +115,20 @@ struct parallel_impl {
     if constexpr (std::is_same_v<Exec, InlineExecutor>) {
       std::apply([](auto&... each) { ((void)each.tick(), ...); }, runners);
     } else {
-      executor.get().bulk(
-          count, [&runners](std::size_t index) { tick_one(runners, index); });
+      static constexpr auto table =
+          []<std::size_t... I>(std::index_sequence<I...> /*unused*/) {
+            return std::array{
+                +[](Runners& each) { (void)std::get<I>(each).tick(); }...};
+          }(std::index_sequence_for<Cs...>{});
+      const auto tick_one = [&runners](std::size_t index) {
+        table[index](runners);
+      };
+      if constexpr (std::is_empty_v<Exec>) {
+        Exec{executor}.bulk(count, tick_one);
+      } else {
+        executor->bulk(count, tick_one);
+      }
     }
-  }
-
-  template <class Runners>
-  static void tick_one(Runners& runners, std::size_t index) {
-    static constexpr auto table =
-        []<std::size_t... I>(std::index_sequence<I...> /*unused*/) {
-          return std::array{
-              +[](Runners& each) { (void)std::get<I>(each).tick(); }...};
-        }(std::index_sequence_for<Cs...>{});
-    table[index](runners);
   }
 
   template <class Runners>
@@ -238,7 +228,13 @@ auto make_parallel(Exec& executor, Ns... children) {
        ...),
       "beet: parallel children must share one input type (or take no input)");
   return Node<I, typename I::In, typename I::Out, typename I::Err>(
-      I{{std::move(children)...}, executor_handle<Exec>(executor)});
+      I{{std::move(children)...}, [&]() -> executor_ref<Exec> {
+          if constexpr (std::is_empty_v<Exec>) {
+            return executor;
+          } else {
+            return &executor;
+          }
+        }()});
 }
 
 template <class T>

@@ -17,14 +17,22 @@
 
 namespace beet {
 
+namespace detail {
+/// Stands in for the capturing lambda a parallel node passes to `bulk`.
+struct bulk_fn {
+  void operator()(std::size_t /*unused*/) const;
+};
+}  // namespace detail
+
 /// Decides how a parallel node ticks its children within a single tick:
 /// `exec.bulk(count, fn)` calls `fn(i)` for every `i` in `[0, count)` and
 /// returns once all calls have finished, rethrowing the first exception thrown
-/// by any call. An empty (stateless) executor is stored by value; any other is
-/// referenced and must outlive the nodes built with it.
+/// by any call. Nodes refer to a stateful executor, so it must outlive them.
 template <class E>
-concept executor = requires(E& exec, std::size_t count,
-                            void (*fn)(std::size_t)) { exec.bulk(count, fn); };
+concept executor =
+    requires(E& exec, std::size_t count, const detail::bulk_fn& fn) {
+      exec.bulk(count, fn);
+    };
 
 /// Ticks children one after another on the calling thread, in order.
 struct InlineExecutor {
@@ -81,7 +89,7 @@ class ThreadPoolExecutor {
     {
       std::scoped_lock lock(mutex_);
       for (std::size_t i = 1; i < count; ++i) {
-        jobs_.emplace_back([run, i] { run(i); });
+        jobs_.emplace_back([&run, i] { run(i); });
       }
     }
     wake_.notify_all();

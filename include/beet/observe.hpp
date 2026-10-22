@@ -30,7 +30,8 @@ struct ignore_event {
 ///
 ///   beet::Listeners listeners{.on_halt = [](std::uint32_t id) { ... }};
 ///
-/// Hooks must be thread-safe when the tree uses a `ThreadPoolExecutor`.
+/// Hooks must be thread-safe if a parallel node's executor ticks children
+/// concurrently, as `ThreadPoolExecutor` does.
 template <class TickBegin = ignore_event, class TickEnd = ignore_event,
           class Start = ignore_event, class Finish = ignore_event,
           class Halt = ignore_event>

@@ -173,6 +173,12 @@ static_assert(beet::executor<ReverseExecutor>);
 static_assert(beet::executor<beet::InlineExecutor>);
 static_assert(beet::executor<beet::ThreadPoolExecutor>);
 
+/// Cannot be given the capturing lambda a parallel node passes to `bulk`.
+struct PointerOnlyExecutor {
+  void bulk(std::size_t count, void (*fn)(std::size_t));
+};
+static_assert(!beet::executor<PointerOnlyExecutor>);
+
 TEST_CASE("any type modeling executor can tick parallel children") {
   ReverseExecutor exec;
   std::string order;

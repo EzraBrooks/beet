@@ -290,10 +290,7 @@ TEST_CASE("next_tick computes the schedule from the time alone") {
   const beet::detail::schedule<time_point> sched{
       .period = std::chrono::seconds{1},
       .ticks_per_period = 10,
-      .anchor = start,
-      .anchor_slot = 0,
-      .slot = 0,
-      .behind_until = 0};
+      .anchor = start};
 
   const auto on_time = beet::detail::next_tick(
       sched, 0, start + milliseconds(40), beet::MissedTick::Skip);

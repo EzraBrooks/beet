@@ -421,11 +421,11 @@ auto tick_logger(const rerun::RecordingStream& rec,
   auto status = table.listeners();
   return beet::Listeners{
       .on_tick_begin =
-          [&rec, status](std::uint64_t tick) {
+          [&rec, begin = status.on_tick_begin](std::uint64_t tick) {
             rec.set_time_sequence("tick", static_cast<std::int64_t>(tick));
             rec.set_time_duration_secs("sim_time",
                                        static_cast<double>(tick) * control_dt);
-            status.on_tick_begin(tick);
+            begin(tick);
           },
       .on_tick_end = [&graph, &table](
                          std::uint64_t /*unused*/,

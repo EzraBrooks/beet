@@ -73,7 +73,7 @@ Leaves can be plain functions (`Out(In)` or `Result<Out, E>(In)`) or coroutines 
 beet aims to do as much work as possible at compile time, so the compiler can inline and optimize a tree like any other code:
 - **Structure is static.** A tree's shape, node IDs, and type names are computed at compile time from its type.
 - **Plain functions stay plain.** A subtree made only of plain functions finishes on the tick it starts, so beet runs it as ordinary nested calls with no coroutine frames. beet allocates nothing to tick a tree made entirely of plain functions.
-- **Tracing compiles away.** Without an observer, every tracing hook is discarded at compile time (see [Opt-in tracing](#opt-in-tracing)).
+- **Tracing compiles away.** Without listeners, every tracing hook is discarded at compile time (see [Opt-in tracing](#opt-in-tracing)).
 - **No virtual dispatch.** Parallel nodes on the default inline executor tick their children with a compile-time fold. Any other type modeling the `executor` concept, such as `ThreadPoolExecutor`, is called directly with no interface to inherit.
 - **Ticks stay short.** `retry` and `repeat` start each new attempt on the next tick, so no decorator loops within a single tick.
 
@@ -131,7 +131,7 @@ beet::Runner runner{tree, input, beet::Listeners{
 }};
 ```
 
-The hooks are `on_tick_begin(tick)`, `on_tick_end(tick, status)`, `on_start(id)`, `on_finish(id, status)` and `on_halt(id)`; any left unset compile to nothing. At runtime they only receive integer node IDs; everything else comes from the static table. Halts are reported innermost first. If the tree uses a `ThreadPoolExecutor`, the hooks must be thread-safe.
+The hooks are `on_tick_begin(tick)`, `on_tick_end(tick, status)`, `on_start(id)`, `on_finish(id, status)` and `on_halt(id)`; any left unset compile to nothing. At runtime they only receive integer node IDs; everything else comes from the static table. Halts are reported innermost first. If a parallel node's executor ticks children concurrently, as `ThreadPoolExecutor` does, the hooks must be thread-safe.
 
 `StatusTable` keeps the latest status of every node and provides its own hooks:
 

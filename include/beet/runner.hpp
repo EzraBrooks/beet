@@ -127,9 +127,9 @@ struct schedule {
   std::chrono::nanoseconds period;
   std::int64_t ticks_per_period;
   TimePoint anchor;
-  std::uint64_t anchor_slot;
-  std::uint64_t slot;          // the next tick's slot
-  std::uint64_t behind_until;  // while bursting, the last slot known missed
+  std::uint64_t anchor_slot = 0;
+  std::uint64_t slot = 0;          // the next tick's slot
+  std::uint64_t behind_until = 0;  // while bursting, the last slot known missed
 
   // Exact for any period, so the schedule never accumulates rounding error.
   [[nodiscard]] constexpr TimePoint deadline(std::uint64_t at) const {
@@ -248,10 +248,7 @@ class Runner {
     detail::schedule<decltype(pacer.now())> sched{
         .period = period,
         .ticks_per_period = static_cast<std::int64_t>(rate),
-        .anchor = pacer.now(),
-        .anchor_slot = 0,
-        .slot = 0,
-        .behind_until = 0};
+        .anchor = pacer.now()};
     for (std::uint64_t ticked = 0;; ++ticked) {
       const Status status = tick();
       if (status != Status::Running) {
