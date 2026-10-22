@@ -1,7 +1,6 @@
 #pragma once
 
 #include <array>
-#include <concepts>
 #include <cstddef>
 #include <optional>
 #include <string_view>
@@ -78,6 +77,11 @@ struct runner_set {
                                           child_trace<Impl, I>(trace))...) {}
 };
 
+/// A stateless executor is held by value, so a temporary one cannot dangle;
+/// any other is referred to.
+template <class Exec>
+using executor_ref = std::conditional_t<std::is_empty_v<Exec>, Exec, Exec*>;
+
 /// `Exec` is the executor's concrete type, so its `bulk` call is direct and
 /// `InlineExecutor` needs no indirection at all.
 template <class Policy, class Exec, class... Cs>
@@ -91,7 +95,7 @@ struct parallel_impl {
   static constexpr std::size_t count = sizeof...(Cs);
 
   std::tuple<Cs...> nodes;
-  Exec* executor;
+  [[no_unique_address]] executor_ref<Exec> executor;
 
   template <class Trace>
   Task<R> run(In in, Trace trace) const {
@@ -110,13 +114,19 @@ struct parallel_impl {
     if constexpr (std::is_same_v<Exec, InlineExecutor>) {
       std::apply([](auto&... each) { ((void)each.tick(), ...); }, runners);
     } else {
-      const auto ptrs = std::apply(
-          [](auto&... each) {
-            return std::array<runner_base*, count>{&each...};
-          },
-          runners);
-      executor->bulk(count,
-                     [&ptrs](std::size_t index) { ptrs[index]->tick(); });
+      static constexpr auto table =
+          []<std::size_t... I>(std::index_sequence<I...> /*unused*/) {
+            return std::array{
+                +[](Runners& each) { (void)std::get<I>(each).tick(); }...};
+          }(std::index_sequence_for<Cs...>{});
+      const auto tick_one = [&runners](std::size_t index) {
+        table[index](runners);
+      };
+      if constexpr (std::is_empty_v<Exec>) {
+        Exec{executor}.bulk(count, tick_one);
+      } else {
+        executor->bulk(count, tick_one);
+      }
     }
   }
 
@@ -136,12 +146,15 @@ struct parallel_impl {
   template <std::size_t... I, class Runners>
   static std::optional<R> decide_all(Runners& runners) {
     std::optional<R> out;
-    ((out || std::get<I>(runners).status() != Status::Failure
-          ? void()
-          : void(out.emplace(unexpect,
-                             coerce<Err>(std::move(
-                                 std::get<I>(runners).result().error()))))),
-     ...);
+    (
+        [&] {
+          if (!out && std::get<I>(runners).status() == Status::Failure) {
+            out.emplace(
+                unexpect,
+                coerce<Err>(std::move(std::get<I>(runners).result().error())));
+          }
+        }(),
+        ...);
     if (!out && (... && (std::get<I>(runners).status() == Status::Success))) {
       out.emplace(tl::in_place, std::move(*std::get<I>(runners).result())...);
     }
@@ -151,11 +164,14 @@ struct parallel_impl {
   template <std::size_t... I, class Runners>
   static std::optional<R> decide_any(Runners& runners) {
     std::optional<R> out;
-    ((out || std::get<I>(runners).status() != Status::Success
-          ? void()
-          : void(out.emplace(tl::in_place, std::in_place_index<I>,
-                             std::move(*std::get<I>(runners).result())))),
-     ...);
+    (
+        [&] {
+          if (!out && std::get<I>(runners).status() == Status::Success) {
+            out.emplace(tl::in_place, std::in_place_index<I>,
+                        std::move(*std::get<I>(runners).result()));
+          }
+        }(),
+        ...);
     if (!out && (... && (std::get<I>(runners).status() == Status::Failure))) {
       out.emplace(unexpect,
                   coerce<Err>(std::move(
@@ -177,11 +193,14 @@ struct parallel_impl {
     if (succeeded >= required) {
       out.emplace(tl::in_place, take_value(std::get<I>(runners))...);
     } else if (failed > count - required) {
-      ((std::get<I>(runners).status() == Status::Failure
-            ? void(out.emplace(
-                  unexpect, coerce<Err>(std::get<I>(runners).result().error())))
-            : void()),
-       ...);
+      (
+          [&] {
+            if (std::get<I>(runners).status() == Status::Failure) {
+              out.emplace(unexpect,
+                          coerce<Err>(std::get<I>(runners).result().error()));
+            }
+          }(),
+          ...);
     }
     return out;
   }
@@ -208,50 +227,59 @@ auto make_parallel(Exec& executor, Ns... children) {
        ...),
       "beet: parallel children must share one input type (or take no input)");
   return Node<I, typename I::In, typename I::Out, typename I::Err>(
-      I{{std::move(children)...}, &executor});
+      I{{std::move(children)...}, [&]() -> executor_ref<Exec> {
+          if constexpr (std::is_empty_v<Exec>) {
+            return executor;
+          } else {
+            return &executor;
+          }
+        }()});
 }
 
 template <class T>
-concept not_executor = !std::derived_from<std::remove_cvref_t<T>, Executor>;
+concept not_executor = !executor<std::remove_cvref_t<T>>;
 
 }  // namespace detail
 
 /// Ticks all children every tick. Succeeds with a tuple of their outputs once
 /// all succeed; fails with the first failure (lowest index) and halts the rest.
-template <std::derived_from<Executor> E, class... Cs>
+template <executor E, class... Cs>
 auto parallel_all(E& executor, Cs... children) {
   return detail::make_parallel<detail::all_policy>(
       executor, node(std::move(children))...);
 }
 template <detail::not_executor C, class... Cs>
 auto parallel_all(C first, Cs... rest) {
-  return parallel_all(inline_executor(), std::move(first), std::move(rest)...);
+  InlineExecutor inline_exec;
+  return parallel_all(inline_exec, std::move(first), std::move(rest)...);
 }
 
 /// Succeeds with the first child to succeed (lowest index on ties), as a
 /// variant indexed by child, and halts the rest. Fails with the last child's
 /// error once every child has failed.
-template <std::derived_from<Executor> E, class... Cs>
+template <executor E, class... Cs>
 auto parallel_any(E& executor, Cs... children) {
   return detail::make_parallel<detail::any_policy>(
       executor, node(std::move(children))...);
 }
 template <detail::not_executor C, class... Cs>
 auto parallel_any(C first, Cs... rest) {
-  return parallel_any(inline_executor(), std::move(first), std::move(rest)...);
+  InlineExecutor inline_exec;
+  return parallel_any(inline_exec, std::move(first), std::move(rest)...);
 }
 
 /// Succeeds once at least `K` children succeed, with each child's output if it
 /// succeeded. Fails once success becomes impossible, with the highest-index
 /// failure, and halts the rest.
-template <std::size_t K, std::derived_from<Executor> E, class... Cs>
+template <std::size_t K, executor E, class... Cs>
 auto parallel_n(E& executor, Cs... children) {
   return detail::make_parallel<detail::at_least_policy<K>>(
       executor, node(std::move(children))...);
 }
 template <std::size_t K, detail::not_executor C, class... Cs>
 auto parallel_n(C first, Cs... rest) {
-  return parallel_n<K>(inline_executor(), std::move(first), std::move(rest)...);
+  InlineExecutor inline_exec;
+  return parallel_n<K>(inline_exec, std::move(first), std::move(rest)...);
 }
 
 }  // namespace beet

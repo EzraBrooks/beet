@@ -40,18 +40,23 @@ struct Recorder {
     std::scoped_lock lock(mutex);
     events.push_back(std::move(event));
   }
-  void on_tick_begin(std::uint64_t tick) {
-    push("tick:" + std::to_string(tick));
+  auto listeners() {
+    return beet::Listeners{
+        .on_tick_begin =
+            [this](std::uint64_t tick) {
+              push("tick:" + std::to_string(tick));
+            },
+        .on_start =
+            [this](std::uint32_t id) { push("start:" + std::to_string(id)); },
+        .on_finish =
+            [this](std::uint32_t id, Status status) {
+              push("finish:" + std::to_string(id) +
+                   (status == Status::Success ? ":ok" : ":fail"));
+            },
+        .on_halt =
+            [this](std::uint32_t id) { push("halt:" + std::to_string(id)); }};
   }
-  void on_tick_end(std::uint64_t /*unused*/, Status /*unused*/) {}
-  void on_start(std::uint32_t id) { push("start:" + std::to_string(id)); }
-  void on_finish(std::uint32_t id, Status status) {
-    push("finish:" + std::to_string(id) +
-         (status == Status::Success ? ":ok" : ":fail"));
-  }
-  void on_halt(std::uint32_t id) { push("halt:" + std::to_string(id)); }
 };
-static_assert(beet::observer<Recorder>);
 
 // sequence(recover(sequence(check, twice)), named(slow)) has IDs:
 //   0 sequence, 1 recover, 2 sequence, 3 check, 4 twice, 5 slow
@@ -84,7 +89,7 @@ TEST_CASE("an untraced runner and a traced runner produce the same result") {
   auto tree = make_tree();
   beet::Runner plain{tree, 2};
   Recorder rec;
-  beet::Runner traced{tree, 2, rec};
+  beet::Runner traced{tree, 2, rec.listeners()};
   while (plain.tick() == Status::Running) {
   }
   while (traced.tick() == Status::Running) {
@@ -96,8 +101,9 @@ TEST_CASE(
     "events follow depth-first execution and running nodes stay open across "
     "ticks") {
   Recorder rec;
-  beet::Runner runner{make_tree(), 1,
-                      rec};  // `wait` receives 2, so it runs for two ticks
+  beet::Runner runner{
+      make_tree(), 1,
+      rec.listeners()};  // `wait` receives 2, so it runs for two ticks
   CHECK(runner.tick() == Status::Running);
   CHECK(runner.tick() == Status::Running);
   CHECK(runner.tick() == Status::Success);
@@ -110,7 +116,7 @@ TEST_CASE(
 
 TEST_CASE("a short-circuited failure still finishes every enclosing node") {
   Recorder rec;
-  beet::Runner runner{make_tree(), -1, rec};
+  beet::Runner runner{make_tree(), -1, rec.listeners()};
   while (runner.tick() == Status::Running) {
   }
   CHECK(rec.events == std::vector<std::string>{
@@ -122,17 +128,28 @@ TEST_CASE("a short-circuited failure still finishes every enclosing node") {
 TEST_CASE(
     "halting reports every node that was still running, innermost first") {
   Recorder rec;
-  beet::Runner runner{make_tree(), 3, rec};
+  beet::Runner runner{make_tree(), 3, rec.listeners()};
   runner.tick();
   rec.events.clear();
   runner.halt();
   CHECK(rec.events == std::vector<std::string>{"halt:5", "halt:0"});
 }
 
+TEST_CASE("Listeners only needs the hooks it uses") {
+  std::vector<std::uint32_t> halted;
+  beet::Runner runner{make_tree(), 3,
+                      beet::Listeners{.on_halt = [&halted](std::uint32_t id) {
+                        halted.push_back(id);
+                      }}};
+  runner.tick();
+  runner.halt();
+  CHECK(halted == std::vector<std::uint32_t>{5, 0});
+}
+
 TEST_CASE("parallel_any halts the losing children") {
   auto tree = beet::parallel_any(slow, slow, slow);
   Recorder rec;
-  beet::Runner runner{tree, 1, rec};
+  beet::Runner runner{tree, 1, rec.listeners()};
   while (runner.tick() == Status::Running) {
   }
   CHECK(rec.events.back() == "finish:0:ok");
@@ -144,7 +161,7 @@ TEST_CASE("parallel_any halts the losing children") {
   auto racing = beet::parallel_any(beet::node(slow),
                                    beet::node([](int value) { return value; }));
   Recorder rec2;
-  beet::Runner second{racing, 5, rec2};
+  beet::Runner second{racing, 5, rec2.listeners()};
   second.tick();
   CHECK(rec2.events == std::vector<std::string>{"tick:0", "start:0", "start:1",
                                                 "start:2", "finish:2:ok",
@@ -154,7 +171,7 @@ TEST_CASE("parallel_any halts the losing children") {
 TEST_CASE("retry reports each attempt on the same ID") {
   auto tree = beet::retry<3>(check);
   Recorder rec;
-  beet::Runner runner{tree, -1, rec};
+  beet::Runner runner{tree, -1, rec.listeners()};
   while (runner.tick() == Status::Running) {
   }
   CHECK(rec.events == std::vector<std::string>{
@@ -166,7 +183,7 @@ TEST_CASE("retry reports each attempt on the same ID") {
 TEST_CASE("StatusTable tracks the latest status of each node") {
   auto tree = make_tree();
   beet::StatusTable<decltype(tree)> table;
-  beet::Runner runner{tree, 1, table};
+  beet::Runner runner{tree, 1, table.listeners()};
   runner.tick();
   CHECK(table.status(0) == beet::NodeStatus::Running);
   CHECK(table.status(3) == beet::NodeStatus::Success);
@@ -182,7 +199,7 @@ TEST_CASE("StatusTable works with a thread pool") {
   beet::ThreadPoolExecutor pool(4);
   auto tree = beet::parallel_all(pool, slow, slow, slow, slow);
   beet::StatusTable<decltype(tree)> table;
-  beet::Runner runner{tree, 2, table};
+  beet::Runner runner{tree, 2, table.listeners()};
   CHECK(runner.tick() == Status::Running);
   for (std::uint32_t id = 0; id < decltype(table)::size; ++id) {
     CHECK(table.status(id) == beet::NodeStatus::Running);

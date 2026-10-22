@@ -25,16 +25,16 @@
 namespace beet {
 
 namespace detail {
-template <class Obs>
+template <class Hooks>
 struct traced;  // defined in beet/observe.hpp
 
-template <class Obs>
-struct observer_slot {
-  Obs* observer;
+template <class Hooks>
+struct listener_slot {
+  Hooks listeners;
   std::uint64_t ticks = 0;
 };
 template <>
-struct observer_slot<void> {};
+struct listener_slot<void> {};
 
 class steady_pacer {
  public:
@@ -118,11 +118,76 @@ struct RunOptions {
   std::function<void(const Overrun&)> on_overrun = OverrunWarning{};
 };
 
+namespace detail {
+
+/// Where `Runner::run()` is in its fixed-rate schedule. Slot `n` is due
+/// `n - anchor_slot` intervals after `anchor`.
+template <class TimePoint>
+struct schedule {
+  std::chrono::nanoseconds period;
+  std::int64_t ticks_per_period;
+  TimePoint anchor;
+  std::uint64_t anchor_slot = 0;
+  std::uint64_t slot = 0;          // the next tick's slot
+  std::uint64_t behind_until = 0;  // while bursting, the last slot known missed
+
+  // Exact for any period, so the schedule never accumulates rounding error.
+  [[nodiscard]] constexpr TimePoint deadline(std::uint64_t at) const {
+    const auto since = static_cast<std::int64_t>(at - anchor_slot);
+    return anchor + (since / ticks_per_period) * period +
+           (since % ticks_per_period) * period / ticks_per_period;
+  }
+};
+
+template <class TimePoint>
+struct schedule_step {
+  schedule<TimePoint> next;
+  std::optional<Overrun> overrun;  // a new overrun to report
+  bool late;                       // the next tick is already due
+};
+
+/// The schedule after tick number `ticked` ends at `now`.
+template <class TimePoint>
+constexpr schedule_step<TimePoint> next_tick(schedule<TimePoint> sched,
+                                             std::uint64_t ticked,
+                                             TimePoint now, MissedTick policy) {
+  ++sched.slot;
+  const TimePoint due = sched.deadline(sched.slot);
+  if (now <= due) {
+    return {.next = sched, .overrun = std::nullopt, .late = false};
+  }
+  // While bursting, deadlines up to `behind_until` are already known to be
+  // missed, so only deadlines past them count as a new overrun.
+  const std::uint64_t known = std::max(sched.slot, sched.behind_until);
+  std::uint64_t last_due = known;
+  while (sched.deadline(last_due + 1) <= now) {
+    ++last_due;
+  }
+  std::optional<Overrun> overrun;
+  if (last_due > sched.behind_until) {
+    overrun = Overrun{.tick = ticked,
+                      .late = now - due,
+                      .missed = last_due - known,
+                      .interval = sched.period / sched.ticks_per_period};
+  }
+  switch (policy) {
+    case MissedTick::Burst: sched.behind_until = last_due; break;
+    case MissedTick::Delay:
+      sched.anchor = now;
+      sched.anchor_slot = sched.slot;
+      break;
+    case MissedTick::Skip: sched.slot = last_due; break;
+  }
+  return {.next = sched, .overrun = overrun, .late = true};
+}
+
+}  // namespace detail
+
 /// Owns a tree and its input, and drives it one tick at a time.
 ///
-/// `Runner<N>` runs the tree untraced. `Runner<N, Obs>` (constructed with an
-/// observer, see beet/observe.hpp) reports node events to `Obs`.
-template <node_type N, class Obs = void>
+/// `Runner<N>` runs the tree untraced. `Runner<N, Hooks>` (constructed with a
+/// `beet::Listeners`, see beet/observe.hpp) reports node events to its hooks.
+template <node_type N, class Hooks = void>
 class Runner {
  public:
   using input_type = input_t<N>;
@@ -132,17 +197,19 @@ class Runner {
   static constexpr std::size_t rate = N::rate;
 
   Runner(N tree, input_type input)
-    requires std::is_void_v<Obs>
+    requires std::is_void_v<Hooks>
       : tree_(std::move(tree)), input_(std::move(input)) {}
 
   explicit Runner(N tree)
-    requires std::is_void_v<Obs> && std::default_initializable<input_type>
+    requires std::is_void_v<Hooks> && std::default_initializable<input_type>
       : Runner(std::move(tree), input_type{}) {}
 
-  template <class O>
-    requires std::is_same_v<O, Obs>
-  Runner(N tree, input_type input, O& observer)
-      : tree_(std::move(tree)), input_(std::move(input)), slot_{&observer} {}
+  template <class L>
+    requires std::same_as<L, Hooks>
+  Runner(N tree, input_type input, L listeners)
+      : tree_(std::move(tree)),
+        input_(std::move(input)),
+        slot_{std::move(listeners)} {}
 
   Runner(const Runner&) = delete;
   Runner& operator=(const Runner&) = delete;
@@ -151,13 +218,13 @@ class Runner {
   /// suspended on `running`. Once the tree has finished, returns its final
   /// status without re-running it.
   Status tick() {
-    if constexpr (std::is_void_v<Obs>) {
+    if constexpr (std::is_void_v<Hooks>) {
       return advance(detail::untraced{});
     } else {
       const std::uint64_t tick = slot_.ticks++;
-      slot_.observer->on_tick_begin(tick);
-      const Status status = advance(detail::traced<Obs>{slot_.observer, 0});
-      slot_.observer->on_tick_end(tick, status);
+      slot_.listeners.on_tick_begin(tick);
+      const Status status = advance(detail::traced<Hooks>{&slot_.listeners, 0});
+      slot_.listeners.on_tick_end(tick, status);
       return status;
     }
   }
@@ -178,19 +245,10 @@ class Runner {
     static_assert(rate != 0,
                   "beet: Runner::run() needs a tree with a rate; wrap the root "
                   "in beet::rate<K>()");
-    constexpr auto ticks_per_period = static_cast<std::int64_t>(rate);
-    const auto interval = period / ticks_per_period;
-    auto anchor = pacer.now();
-    std::uint64_t anchor_slot = 0;
-    // Exact for any period, so the schedule never accumulates rounding error.
-    const auto deadline = [&](std::uint64_t slot) {
-      const auto since = static_cast<std::int64_t>(slot - anchor_slot);
-      return anchor + (since / ticks_per_period) * period +
-             (since % ticks_per_period) * period / ticks_per_period;
-    };
-
-    std::uint64_t slot = 0;
-    std::uint64_t behind_until = 0;
+    detail::schedule<decltype(pacer.now())> sched{
+        .period = period,
+        .ticks_per_period = static_cast<std::int64_t>(rate),
+        .anchor = pacer.now()};
     for (std::uint64_t ticked = 0;; ++ticked) {
       const Status status = tick();
       if (status != Status::Running) {
@@ -199,31 +257,16 @@ class Runner {
       if (options.stop.stop_requested()) {
         return Status::Running;
       }
-      ++slot;
-      const auto now = pacer.now();
-      if (now > deadline(slot)) {
-        // While bursting, deadlines up to `behind_until` are already known to
-        // be missed, so only deadlines past them count as a new overrun.
-        std::uint64_t last_due = std::max(slot, behind_until);
-        while (deadline(last_due + 1) <= now) {
-          ++last_due;
-        }
-        if (last_due > behind_until && options.on_overrun) {
-          options.on_overrun(Overrun{ticked, now - deadline(slot),
-                                     last_due - std::max(slot, behind_until),
-                                     interval});
-        }
-        switch (options.missed_tick) {
-          case MissedTick::Burst: behind_until = last_due; break;
-          case MissedTick::Delay:
-            anchor = now;
-            anchor_slot = slot;
-            break;
-          case MissedTick::Skip: slot = last_due; break;
-        }
+      const auto step =
+          detail::next_tick(sched, ticked, pacer.now(), options.missed_tick);
+      sched = step.next;
+      if (step.overrun && options.on_overrun) {
+        options.on_overrun(*step.overrun);
+      }
+      if (step.late) {
         continue;
       }
-      pacer.sleep_until(deadline(slot), options.stop);
+      pacer.sleep_until(sched.deadline(sched.slot), options.stop);
       if (options.stop.stop_requested()) {
         return Status::Running;
       }
@@ -299,7 +342,7 @@ class Runner {
 
   N tree_;
   input_type input_;
-  [[no_unique_address]] detail::observer_slot<Obs> slot_;
+  [[no_unique_address]] detail::listener_slot<Hooks> slot_;
   std::optional<run_state> run_;
 };
 
@@ -307,7 +350,7 @@ template <class N, class I>
 Runner(N, I) -> Runner<N>;
 template <class N>
 Runner(N) -> Runner<N>;
-template <class N, class I, class O>
-Runner(N, I, O&) -> Runner<N, O>;
+template <class N, class I, class L>
+Runner(N, I, L) -> Runner<N, L>;
 
 }  // namespace beet

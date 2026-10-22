@@ -1,7 +1,7 @@
 # 🫜 beet
 
 > [!WARNING]
-> This repository is in very early development and is mostly AI-generated. It exists primarily to gauge community interest in this approach to behavior trees. Expect rough edges and breaking changes, and do not rely on it in production.
+> This repository is in very early development. Expect rough edges and breaking changes, and do not rely on it in production.
 
 beet is a header-only C++20 library for behavior trees in which a tree is ordinary C++ code: nodes are typed functions, composites are function calls, and the compiler checks how every part connects before the tree ever ticks.
 
@@ -73,8 +73,8 @@ Leaves can be plain functions (`Out(In)` or `Result<Out, E>(In)`) or coroutines 
 beet aims to do as much work as possible at compile time, so the compiler can inline and optimize a tree like any other code:
 - **Structure is static.** A tree's shape, node IDs, and type names are computed at compile time from its type.
 - **Plain functions stay plain.** A subtree made only of plain functions finishes on the tick it starts, so beet runs it as ordinary nested calls with no coroutine frames. beet allocates nothing to tick a tree made entirely of plain functions.
-- **Tracing compiles away.** Without an observer, every tracing hook is discarded at compile time (see [Opt-in tracing](#opt-in-tracing)).
-- **No virtual dispatch on the default path.** Parallel nodes on the default inline executor tick their children with a compile-time fold, and a `ThreadPoolExecutor` is called directly rather than through a virtual interface.
+- **Tracing compiles away.** Without listeners, every tracing hook is discarded at compile time (see [Opt-in tracing](#opt-in-tracing)).
+- **No virtual dispatch.** Parallel nodes on the default inline executor tick their children with a compile-time fold. Any other type modeling the `executor` concept, such as `ThreadPoolExecutor`, is called directly with no interface to inherit.
 - **Ticks stay short.** `retry` and `repeat` start each new attempt on the next tick, so no decorator loops within a single tick.
 
 ## Tick rates
@@ -106,7 +106,7 @@ A rate has no unit. `rate<K>(node)` means "`K` ticks per period", and the period
 
 ## Long-running work and concurrent branches
 
-`beet::offload(fn)` runs a plain function on its own thread and stays running until it returns, so slow work such as motion planning does not stall the tick. `fn` may take a trailing `std::stop_token`, which is stopped if the node is halted. Cancellation is cooperative: halting destroys the node right away, but the thread only receives a stop request, because C++ has no safe way to kill a thread.
+`beet::offload(fn)` runs a plain function on its own thread and stays running until it returns, so slow work such as motion planning does not stall the tick. `fn` may take a trailing `std::stop_token`, which is stopped if the node is halted. The thread is a `std::jthread` owned by the running node, so cancellation is cooperative: halting requests a stop and then waits for `fn` to return, because C++ has no safe way to kill a thread. Functions that run for long should poll the token.
 
 `beet::Channel<Req, Reply>` links branches that run side by side, such as a planner and a controller under `parallel_any`. `Channel::call()` is a node that takes a `beet::Call{channel, request}`, waits for the reply, and fails with the reply's errors when `Reply` is a `Result`. The server takes requests with `try_receive()` and answers with `reply()`; halting the caller cancels its request.
 
@@ -120,20 +120,29 @@ Current limitations:
 
 A tree's type already spells out its shape, so beet derives the structure at compile time rather than recording it at runtime. `beet::describe<Tree>()` returns a `constexpr` table with one entry per node, in depth-first order. Each entry holds the node's kind, label, parent, and the names of its input, output and error types. Labels are attached with `beet::named<"plan">(node)` and live only in the type.
 
-To watch a tree run, pass an observer to the `Runner`:
+To watch a tree run, pass `beet::Listeners` to the `Runner`, setting only the hooks you need:
 
 ```cpp
 #include "beet/observe.hpp"
 
-beet::StatusTable<decltype(tree)> table;  // latest status of every node, by ID
-beet::Runner runner{tree, input, table};
-runner.tick();
-table.status(5);                          // NodeStatus::Running
+beet::Runner runner{tree, input, beet::Listeners{
+    .on_finish = [](std::uint32_t id, beet::Status status) { /* ... */ },
+    .on_halt = [](std::uint32_t id) { /* ... */ },
+}};
 ```
 
-An observer is any type with `on_tick_begin`, `on_tick_end`, `on_start(id)`, `on_finish(id, status)` and `on_halt(id)`. At runtime it only receives integer node IDs; everything else comes from the static table. Halts are reported innermost first. If the tree uses a `ThreadPoolExecutor`, the observer must be thread-safe. `StatusTable` is.
+The hooks are `on_tick_begin(tick)`, `on_tick_end(tick, status)`, `on_start(id)`, `on_finish(id, status)` and `on_halt(id)`; any left unset compile to nothing. At runtime they only receive integer node IDs; everything else comes from the static table. Halts are reported innermost first. If a parallel node's executor ticks children concurrently, as `ThreadPoolExecutor` does, the hooks must be thread-safe.
 
-**Tracing costs nothing unless you use it.** Every node runs through a trace parameter. A `Runner` without an observer passes an empty `untraced` value, and on that path every hook is discarded by `if constexpr`. The traced wrappers are only instantiated when a `Runner` is constructed with an observer, and `beet/observe.hpp` is not included by `beet/beet.hpp`. A CTest check runs `nm` on the untraced example binary and fails if any tracing symbols appear in it.
+`StatusTable` keeps the latest status of every node and provides its own hooks:
+
+```cpp
+beet::StatusTable<decltype(tree)> table;
+beet::Runner runner{tree, input, table.listeners()};
+runner.tick();
+table.status(5);  // NodeStatus::Running
+```
+
+**Tracing costs nothing unless you use it.** Every node runs through a trace parameter. A `Runner` without listeners passes an empty `untraced` value, and on that path every hook is discarded by `if constexpr`. The traced wrappers are only instantiated when a `Runner` is constructed with listeners, and `beet/observe.hpp` is not included by `beet/beet.hpp`. A CTest check runs `nm` on the untraced example binary and fails if any tracing symbols appear in it.
 
 Current limits:
 - **User coroutine leaves:** subtrees awaited inside a user coroutine leaf (`co_await subtree(x)`) are reported as part of that leaf.

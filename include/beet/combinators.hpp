@@ -12,6 +12,7 @@
 #include "beet/meta.hpp"
 #include "beet/node.hpp"
 #include "beet/result.hpp"
+#include "beet/scope_exit.hpp"
 #include "beet/task.hpp"
 
 namespace beet {
@@ -240,12 +241,6 @@ template <class N, class F>
 struct finally_impl {
   static constexpr std::string_view kind = "finally";
   using children = type_list<N>;
-
-  struct guard {
-    const F* f;
-    ~guard() { (*f)(); }
-  };
-
   static constexpr bool sync = N::is_sync;
 
   N inner;
@@ -253,14 +248,14 @@ struct finally_impl {
 
   template <class Trace>
   Task<result_t<N>> run(input_t<N> in, Trace trace) const {
-    guard on_exit{&f};
+    scope_exit on_exit{[this] { f(); }};
     co_return co_await settle_child(inner, std::move(in),
                                     child_trace<finally_impl, 0>(trace));
   }
 
   template <class Trace>
   [[nodiscard]] result_t<N> run_sync(input_t<N> in, Trace trace) const {
-    guard on_exit{&f};
+    scope_exit on_exit{[this] { f(); }};
     return inner.run_sync(std::move(in), child_trace<finally_impl, 0>(trace));
   }
 };
@@ -372,8 +367,8 @@ auto finally(N child, F fn) {
       I{std::move(inner), std::move(fn)});
 }
 
-/// Labels a node for observers, e.g. `named<"plan">(plan_path)`. The label
-/// lives only in the type.
+/// Labels a node in `describe`'s output, e.g. `named<"plan">(plan_path)`. The
+/// label lives only in the type.
 template <detail::fixed_string Label, class N>
 auto named(N child) {
   auto inner = node(std::move(child));

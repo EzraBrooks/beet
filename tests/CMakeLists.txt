@@ -49,10 +49,11 @@ beet_compile_fail(cf_rate_not_divisible "rate<K>\\(\\) contains a region whose r
 beet_compile_fail(cf_rate_direct_call "a node containing rate<K>\\(\\) cannot be called")
 beet_compile_fail(cf_rate_any_node "AnyNode cannot hide a rate<K>\\(\\) region")
 beet_compile_fail(cf_run_without_rate "Runner::run\\(\\) needs a tree with a rate")
+beet_compile_fail(cf_listener_bad_signature "a beet::Listeners hook cannot be called with its event's arguments")
 
-# Tracing must leave no symbols in binaries that never attach an observer. The traced test binary
+# Tracing must leave no symbols in binaries that never attach listeners. The traced test binary
 # is the positive control that proves the pattern matches when tracing is used.
-set(BEET_TRACE_SYMBOLS "beet::detail::(observe|traced|halt_guard)<")
+set(BEET_TRACE_SYMBOLS "beet::detail::(observe|traced)<")
 if(NOT CMAKE_NM)
   find_program(CMAKE_NM NAMES nm gcc-nm llvm-nm REQUIRED)
 endif()

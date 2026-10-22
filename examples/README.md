@@ -14,7 +14,7 @@ A CTest check runs `nm` on this binary and fails if any tracing symbols appear i
 
 ## Tree status in Rerun
 
-[rerun_status.cpp](rerun_status.cpp) runs the same mission and logs it to [Rerun](https://rerun.io) as a graph, one frame per tick. The graph's edges come from `beet::describe`, so its structure is derived entirely from the tree's type. A `StatusTable` observer colors each node by status. The logging code is in [rerun_tree.hpp](rerun_tree.hpp) and works with any tree.
+[rerun_status.cpp](rerun_status.cpp) runs the same mission and logs it to [Rerun](https://rerun.io) as a graph, one frame per tick. The graph's edges come from `beet::describe`, so its structure is derived entirely from the tree's type. A `StatusTable`, fed by its `listeners()`, colors each node by status. The logging code is in [rerun_tree.hpp](rerun_tree.hpp) and works with any tree.
 
 ```sh
 pixi run -e rerun rerun-example   # spawns the viewer

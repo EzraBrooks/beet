@@ -163,7 +163,7 @@ TEST_CASE("tick-based decorators count the ticks of their region") {
   CHECK(seen == std::vector{0, 4});
 }
 
-TEST_CASE("observers see rate nodes") {
+TEST_CASE("listeners see rate nodes") {
   int now = 0;
   std::vector<int> seen;
   auto tree = beet::rate<2>(beet::rate<1>(recorder(seen, now, 2)));
@@ -173,7 +173,7 @@ TEST_CASE("observers see rate nodes") {
   static_assert(beet::tree_info<Tree>[2].kind == "leaf");
 
   beet::StatusTable<Tree> table;
-  beet::Runner runner{tree, beet::unit{}, table};
+  beet::Runner runner{tree, beet::unit{}, table.listeners()};
   CHECK(runner.tick() == Status::Running);
   CHECK(table.status(2) == beet::NodeStatus::Running);
   CHECK(runner.tick() == Status::Running);
@@ -282,6 +282,30 @@ TEST_CASE("OverrunWarning writes at most one line per second to std::clog") {
   CHECK(captured.str() ==
         "beet: 1 tick(s) overran the 1.667ms tick interval (worst +0.912ms, 2 "
         "further deadline(s) missed)\n");
+}
+
+TEST_CASE("next_tick computes the schedule from the time alone") {
+  using time_point = std::chrono::steady_clock::time_point;
+  const time_point start{};
+  const beet::detail::schedule<time_point> sched{
+      .period = std::chrono::seconds{1},
+      .ticks_per_period = 10,
+      .anchor = start};
+
+  const auto on_time = beet::detail::next_tick(
+      sched, 0, start + milliseconds(40), beet::MissedTick::Skip);
+  CHECK_FALSE(on_time.late);
+  CHECK_FALSE(on_time.overrun);
+  CHECK(on_time.next.deadline(on_time.next.slot) == start + milliseconds(100));
+
+  // Tick 1 ends at 350ms, past the deadlines at 200ms and 300ms.
+  const auto late = beet::detail::next_tick(
+      on_time.next, 1, start + milliseconds(350), beet::MissedTick::Skip);
+  CHECK(late.late);
+  REQUIRE(late.overrun);
+  CHECK(late.overrun->late == milliseconds(150));
+  CHECK(late.overrun->missed == 1);
+  CHECK(late.next.deadline(late.next.slot) == start + milliseconds(300));
 }
 
 TEST_CASE("Burst reports a tick that overruns while catching up") {

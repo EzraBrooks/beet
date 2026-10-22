@@ -8,6 +8,7 @@
 
 #include "beet/node.hpp"
 #include "beet/result.hpp"
+#include "beet/scope_exit.hpp"
 #include "beet/task.hpp"
 
 namespace beet {
@@ -96,13 +97,10 @@ class Channel {
             input.channel.state_->queue.push_back(ex);
           }
 
-          struct cancel_on_exit {
-            exchange& ex;
-            ~cancel_on_exit() {
-              std::scoped_lock lock(ex.mutex);
-              ex.cancelled = true;
-            }
-          } guard{*ex};
+          detail::scope_exit cancel_on_exit{[&ex] {
+            std::scoped_lock lock(ex->mutex);
+            ex->cancelled = true;
+          }};
 
           for (;;) {
             {
