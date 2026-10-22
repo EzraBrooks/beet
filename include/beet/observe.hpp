@@ -15,6 +15,7 @@
 
 #include "beet/node.hpp"
 #include "beet/runner.hpp"
+#include "beet/scope_exit.hpp"
 #include "beet/task.hpp"
 
 namespace beet {
@@ -135,25 +136,12 @@ inline constexpr auto tree_info = describe<Tree>();
 
 namespace detail {
 
-template <class Obs>
-struct halt_guard {
-  Obs* observer;
-  std::uint32_t id;
-  bool finished = false;
-
-  ~halt_guard() {
-    if (!finished) {
-      observer->on_halt(id);
-    }
-  }
-};
-
 template <class R, class Obs>
 Task<R> observe(Task<R> inner, Obs* observer, std::uint32_t id) {
   observer->on_start(id);
-  halt_guard<Obs> guard{observer, id};
+  scope_exit on_halt{[observer, id] { observer->on_halt(id); }};
   R result = co_await settle(std::move(inner));
-  guard.finished = true;
+  on_halt.release();
   observer->on_finish(id,
                       result.has_value() ? Status::Success : Status::Failure);
   co_return std::move(result);
@@ -180,9 +168,9 @@ struct traced {
   template <class F>
   auto wrap_sync(F&& run) const {
     obs->on_start(id);
-    halt_guard<Obs> guard{obs, id};
+    scope_exit on_halt{[this] { obs->on_halt(id); }};
     auto result = std::forward<F>(run)();
-    guard.finished = true;
+    on_halt.release();
     obs->on_finish(id, result.has_value() ? Status::Success : Status::Failure);
     return result;
   }

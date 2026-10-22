@@ -52,7 +52,7 @@ beet_compile_fail(cf_run_without_rate "Runner::run\\(\\) needs a tree with a rat
 
 # Tracing must leave no symbols in binaries that never attach an observer. The traced test binary
 # is the positive control that proves the pattern matches when tracing is used.
-set(BEET_TRACE_SYMBOLS "beet::detail::(observe|traced|halt_guard)<")
+set(BEET_TRACE_SYMBOLS "beet::detail::(observe|traced)<")
 if(NOT CMAKE_NM)
   find_program(CMAKE_NM NAMES nm gcc-nm llvm-nm REQUIRED)
 endif()
