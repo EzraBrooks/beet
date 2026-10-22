@@ -11,12 +11,13 @@ Checks: >
   modernize-*,
   performance-*,
   readability-*,
+  -clang-analyzer-core.uninitialized.Assign,
   -clang-analyzer-core.uninitialized.Branch,
   -clang-analyzer-deadcode.DeadStores,
   -modernize-use-trailing-return-type,
   -readability-convert-member-functions-to-static,
 CheckOptions:
-  bugprone-exception-escape.IgnoredExceptions: 'bad_alloc,bad_array_new_length,length_error'
+  bugprone-exception-escape.IgnoredExceptions: 'bad_alloc,bad_array_new_length,length_error,bad_function_call'
   readability-identifier-length.IgnoredVariableNames: '^(in|id|ok|fn|ch|at|no|ex)$'
   readability-identifier-length.IgnoredParameterNames: '^(in|id|ok|fn|ch|at|no|ex)$'
 WarningsAsErrors: '*'

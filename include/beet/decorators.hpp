@@ -111,6 +111,54 @@ struct timeout_impl {
   }
 };
 
+template <class N, std::size_t K>
+struct rate_impl {
+  static constexpr std::string_view kind = "rate";
+  using children = type_list<N>;
+  static constexpr std::size_t rate = K;
+  // A sync child finishes on the region's first tick, which runs right away.
+  static constexpr bool sync = N::is_sync;
+
+  N inner;
+
+  template <class Trace>
+  Task<result_t<N>> run(input_t<N> in, Trace trace) const {
+    if constexpr (trace_rate_v<Trace> == K) {
+      return inner.run(std::move(in), region_trace(trace));
+    } else {
+      return run_divided(std::move(in), trace);
+    }
+  }
+
+  template <class Trace>
+  [[nodiscard]] result_t<N> run_sync(input_t<N> in, Trace trace) const {
+    return inner.run_sync(std::move(in), region_trace(trace));
+  }
+
+ private:
+  template <class Trace>
+  Task<result_t<N>> run_divided(input_t<N> in, Trace trace) const {
+    TaskRunner<result_t<N>> child(
+        inner.run(std::move(in), region_trace(trace)));
+    for (;;) {
+      if (child.tick() != Status::Running) {
+        co_return std::move(child.result());
+      }
+      for (std::size_t i = 0; i < trace_rate_v<Trace> / K; ++i) {
+        co_await running;
+      }
+    }
+  }
+
+  template <class Trace>
+  static constexpr auto region_trace(const Trace& trace) {
+    static_assert(trace_rate_v<Trace> != 0,
+                  "beet: rate<K>() must be ticked by a Runner through beet "
+                  "combinators");
+    return with_rate<K>(child_trace<rate_impl, 0>(trace));
+  }
+};
+
 }  // namespace detail
 
 /// Re-runs `child` on the same input until it succeeds, up to `Attempts` times.
@@ -146,6 +194,21 @@ auto timeout_ticks(N child) {
   using I = detail::timeout_impl<decltype(inner), Ticks>;
   return Node<I, input_t<decltype(inner)>, output_t<decltype(inner)>,
               typename I::Err>(I{std::move(inner)});
+}
+
+/// Ticks `child` `K` times per period: on the region's first tick, then once
+/// every `P / K` ticks of the enclosing region (or `Runner`) ticking `P` times
+/// per period. The rate of every region inside `child` must divide `K`.
+template <std::size_t K, class N>
+auto rate(N child) {
+  static_assert(K >= 1, "beet: rate<K>() needs K >= 1");
+  auto inner = node(std::move(child));
+  using C = decltype(inner);
+  static_assert(rate_v<C> == 0 || K % rate_v<C> == 0,
+                "beet: rate<K>() contains a region whose rate does not divide "
+                "K");
+  using I = detail::rate_impl<C, K>;
+  return Node<I, input_t<C>, output_t<C>, error_t<C>>(I{std::move(inner)});
 }
 
 /// Passes its input through if `pred(input)` holds, otherwise fails with

@@ -1,11 +1,22 @@
 #pragma once
 
+#include <algorithm>
+#include <chrono>
 #include <concepts>
+#include <condition_variable>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>  // IWYU pragma: keep
 #include <cstdlib>
+#include <functional>
+#include <iomanip>
+#include <iostream>
+#include <mutex>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
+#include <stop_token>
+#include <thread>
 #include <type_traits>
 #include <utility>
 
@@ -25,7 +36,90 @@ struct observer_slot {
 };
 template <>
 struct observer_slot<void> {};
+
+class steady_pacer {
+ public:
+  [[nodiscard]] static std::chrono::steady_clock::time_point now() {
+    return std::chrono::steady_clock::now();
+  }
+  void sleep_until(std::chrono::steady_clock::time_point deadline,
+                   const std::stop_token& stop) {
+    if (!stop.stop_possible()) {
+      std::this_thread::sleep_until(deadline);
+      return;
+    }
+    std::unique_lock lock(mutex_);
+    wake_.wait_until(lock, stop, deadline, [] { return false; });
+  }
+
+ private:
+  std::mutex mutex_;
+  std::condition_variable_any wake_;
+};
 }  // namespace detail
+
+/// What `Runner::run()` does after a tick finishes past the next tick's
+/// deadline. Matches Tokio's `MissedTickBehavior`; in every case the late tick
+/// runs right away.
+enum class MissedTick : std::uint8_t {
+  /// Keeps the original schedule, ticking back to back until caught up.
+  Burst,
+  /// Restarts the schedule from the late tick.
+  Delay,
+  /// Drops the deadlines that already passed and keeps the original schedule.
+  Skip,
+};
+
+/// A tick that finished after the next tick's deadline.
+struct Overrun {
+  std::uint64_t tick;                 // the tick that ran long
+  std::chrono::nanoseconds late;      // how far past the next deadline it ended
+  std::uint64_t missed;               // further deadlines that also passed
+  std::chrono::nanoseconds interval;  // nominal time between ticks
+};
+
+/// Writes overruns to `std::clog`, at most one line per second.
+class OverrunWarning {
+ public:
+  void operator()(const Overrun& overrun) {
+    using namespace std::chrono;
+    using millis = duration<double, std::milli>;
+    const auto now = steady_clock::now();
+    ++pending_.ticks;
+    pending_.missed += overrun.missed;
+    pending_.worst = std::max(pending_.worst, overrun.late);
+    if (last_warned_ && now - *last_warned_ < seconds{1}) {
+      return;
+    }
+    // Formatted on the side so `std::clog`'s own format state is untouched.
+    std::ostringstream line;
+    line << std::fixed << std::setprecision(3) << "beet: " << pending_.ticks
+         << " tick(s) overran the " << millis(overrun.interval).count()
+         << "ms tick interval (worst +" << millis(pending_.worst).count()
+         << "ms, " << pending_.missed << " further deadline(s) missed)\n";
+    std::clog << line.view();
+    last_warned_ = now;
+    pending_ = {};
+  }
+
+ private:
+  struct Pending {
+    std::uint64_t ticks = 0;
+    std::uint64_t missed = 0;
+    std::chrono::nanoseconds worst{};
+  };
+
+  std::optional<std::chrono::steady_clock::time_point> last_warned_;
+  Pending pending_;
+};
+
+struct RunOptions {
+  MissedTick missed_tick = MissedTick::Skip;
+  // Lets designated initializers omit `stop` under
+  // -Wmissing-designated-field-initializers.
+  std::stop_token stop{};  // NOLINT(readability-redundant-member-init)
+  std::function<void(const Overrun&)> on_overrun = OverrunWarning{};
+};
 
 /// Owns a tree and its input, and drives it one tick at a time.
 ///
@@ -36,6 +130,9 @@ class Runner {
  public:
   using input_type = input_t<N>;
   using result_type = result_t<N>;
+  /// Ticks per period the tree needs (see `rate<K>()`), or 0 if it has no
+  /// `rate<K>()` region.
+  static constexpr std::size_t rate = N::rate;
 
   Runner(N tree, input_type input)
     requires std::is_void_v<Obs>
@@ -65,6 +162,74 @@ class Runner {
       const Status status = advance(detail::traced<Obs>{slot_.observer, 0});
       slot_.observer->on_tick_end(tick, status);
       return status;
+    }
+  }
+
+  /// Ticks the tree `rate` times per `period` until it finishes, returning its
+  /// final status, or until `options.stop` is requested, returning `Running`.
+  Status run(std::chrono::nanoseconds period = std::chrono::seconds{1},
+             const RunOptions& options = {}) {
+    detail::steady_pacer pacer;
+    return run(period, options, pacer);
+  }
+
+  /// `run()` on the clock of `pacer`, which provides `now()` and
+  /// `sleep_until(time_point, std::stop_token)`.
+  template <class Pacer>
+  Status run(std::chrono::nanoseconds period, const RunOptions& options,
+             Pacer& pacer) {
+    static_assert(rate != 0,
+                  "beet: Runner::run() needs a tree with a rate; wrap the root "
+                  "in beet::rate<K>()");
+    constexpr auto ticks_per_period = static_cast<std::int64_t>(rate);
+    const auto interval = period / ticks_per_period;
+    auto anchor = pacer.now();
+    std::uint64_t anchor_slot = 0;
+    // Exact for any period, so the schedule never accumulates rounding error.
+    const auto deadline = [&](std::uint64_t slot) {
+      const auto since = static_cast<std::int64_t>(slot - anchor_slot);
+      return anchor + (since / ticks_per_period) * period +
+             (since % ticks_per_period) * period / ticks_per_period;
+    };
+
+    std::uint64_t slot = 0;
+    std::uint64_t behind_until = 0;
+    for (std::uint64_t ticked = 0;; ++ticked) {
+      const Status status = tick();
+      if (status != Status::Running) {
+        return status;
+      }
+      if (options.stop.stop_requested()) {
+        return Status::Running;
+      }
+      ++slot;
+      const auto now = pacer.now();
+      if (now > deadline(slot)) {
+        // While bursting, deadlines up to `behind_until` are already known to
+        // be missed, so only deadlines past them count as a new overrun.
+        std::uint64_t last_due = std::max(slot, behind_until);
+        while (deadline(last_due + 1) <= now) {
+          ++last_due;
+        }
+        if (last_due > behind_until && options.on_overrun) {
+          options.on_overrun(Overrun{ticked, now - deadline(slot),
+                                     last_due - std::max(slot, behind_until),
+                                     interval});
+        }
+        switch (options.missed_tick) {
+          case MissedTick::Burst: behind_until = last_due; break;
+          case MissedTick::Delay:
+            anchor = now;
+            anchor_slot = slot;
+            break;
+          case MissedTick::Skip: slot = last_due; break;
+        }
+        continue;
+      }
+      pacer.sleep_until(deadline(slot), options.stop);
+      if (options.stop.stop_requested()) {
+        return Status::Running;
+      }
     }
   }
 
@@ -113,8 +278,15 @@ class Runner {
   using run_state = std::conditional_t<N::is_sync, result_type,
                                        detail::TaskRunner<result_type>>;
 
-  template <class Trace>
-  Status advance(Trace trace) {
+  template <class Root>
+  Status advance(Root root) {
+    const auto trace = [&] {
+      if constexpr (rate != 0) {
+        return detail::with_rate<rate>(root);
+      } else {
+        return root;
+      }
+    }();
     if constexpr (N::is_sync) {
       if (!run_) {
         run_.emplace(tree_.run_sync(input_, trace));
