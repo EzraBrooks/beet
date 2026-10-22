@@ -1,17 +1,18 @@
 // Plans free-space UR5 motions with roboplan's RRT and executes them on a
 // kinematic model, logged to Rerun.
 //
-// The planning branch hands each trajectory to a controller that runs on every
-// tick and replies once the trajectory has been executed. Both branches get
-// their resources from the "open cell" leaf; nothing is shared outside the
-// tree.
+// The planning branch hands each trajectory to a controller that replies once
+// the trajectory has been executed. The controller ticks 100 times per second
+// and the planning branch 10 times, so the tree's root runs at 100. Both
+// branches get their resources from the "open cell" leaf; nothing is shared
+// outside the tree.
 //
 //   pixi run -e roboplan roboplan-example                        # spawns the
 //   viewer
 //   ./roboplan_ur5 --save ur5.rrd --seed 3                       # writes a
 //   recording instead
 
-#include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -20,7 +21,6 @@
 #include <optional>
 #include <string>
 #include <string_view>
-#include <thread>
 #include <vector>
 
 #include <Eigen/Dense>
@@ -45,9 +45,14 @@ using roboplan::JointTrajectory;
 constexpr std::string_view group = "arm";
 constexpr std::string_view tool = "tool0";
 
+// Ticks per second of each branch. The controller's rate is also TOPP-RA's
+// sampling rate, since it executes one trajectory point per tick.
+constexpr std::size_t control_rate = 100;
+constexpr std::size_t planning_rate = 10;
+constexpr double control_dt = 1.0 / control_rate;
+
 struct Config {
   unsigned seed = 0;
-  double dt = 0.01;
   std::shared_ptr<const rerun::RecordingStream> rec;
 };
 
@@ -298,7 +303,7 @@ parameterize(Planned planned) {
   const Config& config = planned.cell.config;
   auto& planner = *planned.cell.planner;
   roboplan::TOPPRAOptions options;
-  options.dt = config.dt;
+  options.dt = control_dt;
   auto traj = planner.toppra.generate(planned.path, options);
   if (!traj) return beet::make_unexpected(ParameterizationFailed{traj.error()});
 
@@ -321,7 +326,7 @@ parameterize(Planned planned) {
 }
 
 // Serves trajectories forever: one trajectory point per tick, since TOPP-RA
-// samples at the control period.
+// samples at the control rate.
 Task<Result<beet::never, beet::never>> controller(Cell cell) {
   std::optional<Trajectories::Request> active;
   std::size_t step = 0;
@@ -367,16 +372,41 @@ auto make_tree(std::shared_ptr<const rerun::RecordingStream> rec) {
   return beet::sequence(
       beet::named<"open cell">(open_cell),
       beet::parallel_any(
-          beet::named<"missions">(beet::repeat<3>(
+          beet::named<"missions">(beet::rate<planning_rate>(beet::repeat<3>(
               beet::recover<PlanningFailed, ParameterizationFailed,
                             StartMismatch>(
                   beet::sequence(beet::named<"choose goal">(choose_goal),
                                  beet::named<"rrt">(beet::offload(plan_rrt)),
                                  beet::named<"toppra">(parameterize),
                                  beet::named<"execute">(Trajectories::call())),
-                  skip_goal))),
-          beet::named<"controller">(controller)));
+                  skip_goal)))),
+          beet::named<"controller">(beet::rate<control_rate>(controller))));
 }
+
+// Stamps each tick with Rerun time before the tree logs anything, and draws
+// the tree's status once the tick ends.
+template <class Tree>
+struct TickLogger {
+  const rerun::RecordingStream& rec;
+  const rerun_tree::GraphLogger<Tree>& graph;
+  beet::StatusTable<Tree> table;
+
+  void on_tick_begin(std::uint64_t tick) {
+    rec.set_time_sequence("tick", static_cast<std::int64_t>(tick));
+    rec.set_time_duration_secs("sim_time",
+                               static_cast<double>(tick) * control_dt);
+    table.on_tick_begin(tick);
+  }
+  void on_tick_end(std::uint64_t tick, beet::Status status) {
+    table.on_tick_end(tick, status);
+    graph.log(table);
+  }
+  void on_start(std::uint32_t id) { table.on_start(id); }
+  void on_finish(std::uint32_t id, beet::Status status) {
+    table.on_finish(id, status);
+  }
+  void on_halt(std::uint32_t id) { table.on_halt(id); }
+};
 
 }  // namespace
 
@@ -400,23 +430,9 @@ int main(int argc, char** argv) {
 
   const auto tree = make_tree(rec);
   using Tree = std::remove_cvref_t<decltype(tree)>;
+  static_assert(beet::rate_v<Tree> == control_rate);
   const rerun_tree::GraphLogger<Tree> graph(*rec, "tree");
-  beet::StatusTable<Tree> table;
-  beet::Runner runner{tree, config, table};
-
-  const auto period = std::chrono::duration<double>(config.dt);
-  auto next = std::chrono::steady_clock::now();
-  beet::Status status;
-  std::int64_t tick = 0;
-  do {
-    rec->set_time_sequence("tick", tick);
-    rec->set_time_duration_secs("sim_time",
-                                static_cast<double>(tick) * config.dt);
-    status = runner.tick();
-    graph.log(table);
-    ++tick;
-    next +=
-        std::chrono::duration_cast<std::chrono::steady_clock::duration>(period);
-    std::this_thread::sleep_until(next);
-  } while (status == beet::Status::Running);
+  TickLogger<Tree> logger{*rec, graph};
+  beet::Runner runner{tree, config, logger};
+  runner.run();
 }

@@ -25,7 +25,8 @@ pixi run -e rerun rerun-record    # writes build-rerun/mission.rrd instead
 
 [roboplan_ur5.cpp](roboplan_ur5.cpp) plans free-space UR5 motions with [roboplan](https://github.com/open-planning/roboplan)'s RRT and executes them on a kinematic model, logged to Rerun. It shows the long-running-work tools working together:
 - **`beet::offload`** runs the planner on its own thread, so planning does not stall the tick.
-- **`beet::Channel`** sends each trajectory from the planning branch to a controller branch under `parallel_any`. The controller runs on every tick and replies once it has executed the trajectory.
+- **`beet::Channel`** sends each trajectory from the planning branch to a controller branch under `parallel_any`. The controller replies once it has executed the trajectory.
+- **`beet::rate`** runs the controller at 100 ticks per second and the planning branch at 10, and `runner.run()` paces the tree at the controller's rate.
 - **Resources as values.** An "open cell" leaf creates the channel and the robot model and passes them to both branches through their inputs. Nothing is shared outside the tree.
 
 ```sh
