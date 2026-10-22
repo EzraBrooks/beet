@@ -1,7 +1,7 @@
 # 🫜 beet
 
 > [!WARNING]
-> This repository is in very early development and is mostly AI-generated. It exists primarily to gauge community interest in this approach to behavior trees. Expect rough edges and breaking changes, and do not rely on it in production.
+> This repository is in very early development. Expect rough edges and breaking changes, and do not rely on it in production.
 
 beet is a header-only C++20 library for behavior trees in which a tree is ordinary C++ code: nodes are typed functions, composites are function calls, and the compiler checks how every part connects before the tree ever ticks.
 
