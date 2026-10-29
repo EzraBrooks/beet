@@ -113,7 +113,6 @@ A rate has no unit. `rate<K>(node)` means "`K` ticks per period", and the period
 Channels are ordinary values. A leaf creates them, and later nodes receive them through their inputs (see [Design philosophy](#design-philosophy)).
 
 Current limitations:
-- **Branches that never finish:** a controller can return `Result<never, never>`, but `parallel_any` still reports `variant<Out, never>` instead of collapsing it to `Out`.
 - **Thread safety:** offloaded functions run on other threads, and the compiler cannot check what they share.
 
 ## Opt-in tracing

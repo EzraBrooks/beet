@@ -94,5 +94,5 @@ TEST_CASE(
     status = runner.tick();
   }
   REQUIRE(status == Status::Success);
-  CHECK(std::get<0>(runner.result().value()) == 11);
+  CHECK(runner.result().value() == 11);
 }

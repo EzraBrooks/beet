@@ -52,6 +52,16 @@ auto job(int id, int ticks, bool succeed = true, int* halted = nullptr) {
   });
 }
 
+/// Never finishes; if halted before it could, bumps `*halted`.
+auto spinner(int* halted) {
+  return beet::node([halted](int) noexcept -> Task<Result<never, never>> {
+    HaltProbe probe{.halted = halted};
+    for (;;) {
+      co_await beet::running;
+    }
+  });
+}
+
 template <class N>
 int ticks_to_finish(beet::Runner<N>& runner) {
   int ticks = 1;
@@ -86,18 +96,73 @@ TEST_CASE("parallel_all fails fast and halts the other children") {
   CHECK(halted == 1);
 }
 
-TEST_CASE("parallel_any returns the first success as a child-indexed variant") {
+TEST_CASE("parallel_any returns the first success as the union of outputs") {
   int halted = 0;
   auto tree =
       beet::parallel_any(job(1, 4, true, &halted), job(2, 2), job(3, 1, false));
-  static_assert(
-      std::is_same_v<output_t<decltype(tree)>, std::variant<int, int, int>>);
+  static_assert(std::is_same_v<output_t<decltype(tree)>, int>);
 
   beet::Runner runner{tree, 10};
   CHECK(ticks_to_finish(runner) == 2);
-  CHECK(runner.result().value().index() == 1);
-  CHECK(std::get<1>(runner.result().value()) == 12);
+  CHECK(runner.result().value() == 12);
   CHECK(halted == 1);
+}
+
+TEST_CASE("parallel_any output collapses when a branch never finishes") {
+  int halted = 0;
+  auto tree = beet::parallel_any(job(1, 2), spinner(&halted));
+  static_assert(std::is_same_v<output_t<decltype(tree)>, int>);
+  beet::Runner runner{tree, 10};
+  CHECK(ticks_to_finish(runner) == 2);
+  CHECK(runner.result().value() == 11);
+  CHECK(halted == 1);
+}
+
+TEST_CASE("parallel_any output is the union of different child outputs") {
+  auto leaf = beet::node([](int value) { return char(value); });
+  auto tree = beet::parallel_any(job(1, 2), leaf);
+  static_assert(
+      std::is_same_v<output_t<decltype(tree)>, std::variant<int, char>>);
+  beet::Runner runner{tree, 7};
+  CHECK(ticks_to_finish(runner) == 1);
+  CHECK(std::get<char>(runner.result().value()) == char(7));
+}
+
+TEST_CASE("parallel_any breaks ties toward the lowest child index") {
+  auto first = beet::node([](int value) { return value; });
+  auto second = beet::node([](int value) { return char(value); });
+  auto tree = beet::parallel_any(first, second);
+  static_assert(
+      std::is_same_v<output_t<decltype(tree)>, std::variant<int, char>>);
+  beet::Runner runner{tree, 7};
+  CHECK(runner.tick() == Status::Success);
+  CHECK(std::holds_alternative<int>(runner.result().value()));
+  CHECK(std::get<int>(runner.result().value()) == 7);
+}
+
+TEST_CASE("parallel_any keeps running while a never branch is alive") {
+  auto tree = beet::parallel_any(job(1, 1, false), spinner(nullptr));
+  static_assert(std::is_same_v<output_t<decltype(tree)>, int>);
+  beet::Runner runner{tree, 0};
+  for (int i = 0; i < 5; ++i) {
+    CHECK(runner.tick() == Status::Running);
+  }
+}
+
+TEST_CASE("parallel_any of never-output children can only fail") {
+  auto failer = [](int id, int ticks) {
+    return beet::node([=](int) noexcept -> Task<Result<never, Failed>> {
+      for (int i = 1; i < ticks; ++i) {
+        co_await beet::running;
+      }
+      co_return beet::make_unexpected(Failed{id});
+    });
+  };
+  auto tree = beet::parallel_any(failer(1, 2), failer(2, 3));
+  static_assert(std::is_same_v<output_t<decltype(tree)>, never>);
+  beet::Runner runner{tree, 0};
+  CHECK(ticks_to_finish(runner) == 3);
+  CHECK(runner.result().error().id == 2);
 }
 
 TEST_CASE("parallel_any fails with the last child's error when all fail") {
