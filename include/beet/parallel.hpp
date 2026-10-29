@@ -7,7 +7,6 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
-#include <variant>
 
 #include "beet/executor.hpp"
 #include "beet/meta.hpp"
@@ -33,7 +32,7 @@ struct parallel_types<all_policy, Cs...> {
 };
 template <class... Cs>
 struct parallel_types<any_policy, Cs...> {
-  using out = std::variant<output_t<Cs>...>;
+  using out = union_t<output_t<Cs>...>;
 };
 template <std::size_t K, class... Cs>
 struct parallel_types<at_least_policy<K>, Cs...> {
@@ -166,9 +165,13 @@ struct parallel_impl {
     std::optional<R> out;
     (
         [&] {
-          if (!out && std::get<I>(runners).status() == Status::Success) {
-            out.emplace(tl::in_place, std::in_place_index<I>,
-                        std::move(*std::get<I>(runners).result()));
+          using V = output_t<std::tuple_element_t<I, std::tuple<Cs...>>>;
+          if constexpr (!std::is_same_v<V, never>) {
+            if (!out && std::get<I>(runners).status() == Status::Success) {
+              out.emplace(
+                  tl::in_place,
+                  coerce<Out>(std::move(*std::get<I>(runners).result())));
+            }
           }
         }(),
         ...);
@@ -254,9 +257,9 @@ auto parallel_all(C first, Cs... rest) {
   return parallel_all(inline_exec, std::move(first), std::move(rest)...);
 }
 
-/// Succeeds with the first child to succeed (lowest index on ties), as a
-/// variant indexed by child, and halts the rest. Fails with the last child's
-/// error once every child has failed.
+/// Succeeds with the first child to succeed (lowest index on ties), as the
+/// union of the children's outputs, and halts the rest. Fails with the last
+/// child's error once every child has failed.
 template <executor E, class... Cs>
 auto parallel_any(E& executor, Cs... children) {
   return detail::make_parallel<detail::any_policy>(
