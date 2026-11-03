@@ -15,6 +15,11 @@
 
 namespace beet {
 
+/// `offload` strategy for jobs that read nothing the tick also touches: the
+/// node's input goes to the job unchanged.
+struct passthrough_t {};
+inline constexpr passthrough_t passthrough{};
+
 namespace detail {
 
 template <class Args>
@@ -27,6 +32,26 @@ template <class A>
 struct offload_input<type_list<A, std::stop_token>> {
   using type = std::decay_t<A>;
 };
+
+// Node input: the job's own input for `passthrough`, otherwise `prepare`'s.
+template <class P, class F>
+struct offload_in {
+  using type = callable_input_t<P>;
+};
+template <class F>
+struct offload_in<passthrough_t, F>
+    : offload_input<typename callable_traits<F>::args> {};
+
+template <class P, class In>
+auto run_prepare(const P& prepare, In&& in) {
+  if constexpr (std::is_same_v<P, passthrough_t>) {
+    return std::forward<In>(in);
+  } else if constexpr (std::is_invocable_v<const P&, In>) {
+    return prepare(std::forward<In>(in));
+  } else {
+    return prepare();
+  }
+}
 
 template <class F, class In>
 decltype(auto) invoke_job(const F& fn, In&& in, const std::stop_token& stop) {
@@ -43,16 +68,22 @@ decltype(auto) invoke_job(const F& fn, In&& in, const std::stop_token& stop) {
 
 }  // namespace detail
 
-/// Runs `fn` on its own thread so slow work does not stall the tick; the node
-/// stays running until `fn` returns. `fn` may take a trailing
-/// `std::stop_token`, which is stopped when the node is halted. Halting waits
-/// for `fn` to return, so long-running jobs should poll the token.
-template <class F>
-auto offload(F fn) {
-  using In = typename detail::offload_input<
-      typename detail::callable_traits<F>::args>::type;
+/// Runs `job` on its own thread so slow work does not stall the tick; the node
+/// stays running until `job` returns. `prepare` runs first, on the tick, and
+/// `job` receives only its result, so state the tick shares can be copied
+/// there instead of read from the job's thread. Pass `beet::passthrough` when
+/// the job needs nothing shared. `job` may take a trailing `std::stop_token`,
+/// which is stopped when the node is halted. Halting waits for `job` to
+/// return, so long-running jobs should poll the token.
+template <class P, class F>
+auto offload(P prepare, F job) {
+  using In = typename detail::offload_in<P, F>::type;
+  using S = decltype(detail::run_prepare(prepare, std::declval<In>()));
+  static_assert(!std::is_void_v<S> && !std::is_pointer_v<S>,
+                "beet::offload prepare must return a value for the job, not "
+                "void or a pointer");
   using R =
-      decltype(detail::invoke_job(fn, std::declval<In>(), std::stop_token{}));
+      decltype(detail::invoke_job(job, std::declval<S>(), std::stop_token{}));
   using L = detail::lift_of<R>;
   static_assert(!L::is_task,
                 "beet::offload runs plain functions; coroutines already yield "
@@ -60,30 +91,32 @@ auto offload(F fn) {
   using Out = typename L::out;
   using Err = typename L::err;
 
-  return node<In>([fn = std::move(fn)](In in) -> Task<Result<Out, Err>> {
+  return node<In>([prepare = std::move(prepare),
+                   job = std::move(job)](In in) -> Task<Result<Out, Err>> {
+    S snapshot = detail::run_prepare(prepare, std::move(in));
     std::atomic<bool> done{false};
     std::optional<Result<Out, Err>> value;
     std::exception_ptr exception;
     // Declared last: destroying the frame stops and joins the worker before
     // anything it refers to goes away.
     std::jthread worker([&](const std::stop_token& stop) {
-      auto job = [&] {
+      auto work = [&] {
         if constexpr (std::is_void_v<R>) {
-          detail::invoke_job(fn, std::move(in), stop);
+          detail::invoke_job(job, std::move(snapshot), stop);
           value.emplace(Out{});
         } else {
           value.emplace(detail::to_result<Out, Err>(
-              detail::invoke_job(fn, std::move(in), stop)));
+              detail::invoke_job(job, std::move(snapshot), stop)));
         }
       };
 #if BEET_EXCEPTIONS
       try {
-        job();
+        work();
       } catch (...) {
         exception = std::current_exception();
       }
 #else
-      job();
+      work();
 #endif
       done.store(true, std::memory_order_release);
     });

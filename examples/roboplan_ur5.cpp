@@ -180,6 +180,11 @@ struct Cell {
   std::shared_ptr<Planner> planner;
 };
 
+struct Goal {
+  Cell cell;
+  Eigen::VectorXd goal;
+};
+
 struct PlanRequest {
   Cell cell;
   Eigen::VectorXd start;
@@ -279,7 +284,7 @@ Cell open_cell(Config config) {
               .planner = std::move(planner)};
 }
 
-Result<PlanRequest, PlanningFailed> choose_goal(Cell cell) {
+Result<Goal, PlanningFailed> choose_goal(Cell cell) {
   auto& scene = *cell.planner->scene;
   const auto goal = scene.randomCollisionFreePositions();
   if (!goal) {
@@ -292,9 +297,16 @@ Result<PlanRequest, PlanningFailed> choose_goal(Cell cell) {
                            .with_colors({rerun::Color(240, 190, 40)}));
   const Eigen::VectorXi arm =
       scene.getJointGroupInfo(std::string(group))->q_indices;
-  Eigen::VectorXd start = cell.robot->arm();
-  return PlanRequest{
-      .cell = std::move(cell), .start = std::move(start), .goal = (*goal)(arm)};
+  return Goal{.cell = std::move(cell), .goal = (*goal)(arm)};
+}
+
+// offload's prepare, so it runs on the tick: the controller moves the robot
+// on the tick, and reading the start from the planning thread would race it.
+PlanRequest snapshot_start(Goal goal) {
+  Eigen::VectorXd start = goal.cell.robot->arm();
+  return PlanRequest{.cell = std::move(goal.cell),
+                     .start = std::move(start),
+                     .goal = std::move(goal.goal)};
 }
 
 // Runs on its own thread, so it computes forward kinematics with private
@@ -405,7 +417,8 @@ auto make_tree(const std::shared_ptr<const rerun::RecordingStream>& rec) {
               beet::recover<PlanningFailed, ParameterizationFailed,
                             StartMismatch>(
                   beet::sequence(beet::named<"choose goal">(choose_goal),
-                                 beet::named<"rrt">(beet::offload(plan_rrt)),
+                                 beet::named<"rrt">(
+                                     beet::offload(snapshot_start, plan_rrt)),
                                  beet::named<"toppra">(parameterize),
                                  beet::named<"execute">(Trajectories::call())),
                   skip_goal)))),

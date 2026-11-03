@@ -31,7 +31,8 @@ std::string run(int input) {
   // tl::expected.
   const auto tree = beet::recover(
       beet::recover<TooSmall>(
-          beet::sequence(beet::offload([](int value) { return value * 4; }),
+          beet::sequence(beet::offload(beet::passthrough,
+                                       [](int value) { return value * 4; }),
                          check, describe),
           [](TooSmall error) {
             return "too small: " + std::to_string(error.value);
