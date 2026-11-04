@@ -106,14 +106,22 @@ A rate has no unit. `rate<K>(node)` means "`K` ticks per period", and the period
 
 ## Long-running work and concurrent branches
 
-`beet::offload(fn)` runs a plain function on its own thread and stays running until it returns, so slow work such as motion planning does not stall the tick. `fn` may take a trailing `std::stop_token`, which is stopped if the node is halted. The thread is a `std::jthread` owned by the running node, so cancellation is cooperative: halting requests a stop and then waits for `fn` to return, because C++ has no safe way to kill a thread. Functions that run for long should poll the token.
+`beet::offload(prepare, job)` runs a plain function on its own thread and stays running until it returns, so slow work such as motion planning does not stall the tick. `prepare` runs first, on the tick, and `job` receives only its result. That is the place to copy state the tick shares, such as a joint-state cache that ROS callbacks update, so the job never reads it from another thread. When the job needs nothing shared, pass `beet::passthrough` and the node's input goes to `job` unchanged:
+
+```cpp
+beet::offload(beet::passthrough, plan);                      // In -> plan(In)
+beet::offload([cache] { return cache->joints(); }, plan);    // plan(Joints)
+beet::offload([](Goal g) { return Request{g, read_start()}; }, plan);
+```
+
+`prepare` must return a value, not a pointer. `job` may take a trailing `std::stop_token`, which is stopped if the node is halted. The thread is a `std::jthread` owned by the running node, so cancellation is cooperative: halting requests a stop and then waits for `job` to return, because C++ has no safe way to kill a thread. Functions that run for long should poll the token.
 
 `beet::Channel<Req, Reply>` links branches that run side by side, such as a planner and a controller under `parallel_any`. `Channel::call()` is a node that takes a `beet::Call{channel, request}`, waits for the reply, and fails with the reply's errors when `Reply` is a `Result`. The server takes requests with `try_receive()` and answers with `reply()`; halting the caller cancels its request.
 
 Channels are ordinary values. A leaf creates them, and later nodes receive them through their inputs (see [Design philosophy](#design-philosophy)).
 
 Current limitations:
-- **Thread safety:** offloaded functions run on other threads, and the compiler cannot check what they share.
+- **Thread safety:** offloaded functions run on other threads, and the compiler cannot check what they share. `prepare` only helps for state you copy into its result: pointers or references the job captures, or that its input carries, are still shared.
 
 ## Opt-in tracing
 

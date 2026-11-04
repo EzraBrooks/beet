@@ -50,6 +50,7 @@ beet_compile_fail(cf_rate_direct_call "a node containing rate<K>\\(\\) cannot be
 beet_compile_fail(cf_rate_any_node "AnyNode cannot hide a rate<K>\\(\\) region")
 beet_compile_fail(cf_run_without_rate "Runner::run\\(\\) needs a tree with a rate")
 beet_compile_fail(cf_listener_bad_signature "a beet::Listeners hook cannot be called with its event's arguments")
+beet_compile_fail(cf_offload_prepare_pointer "offload prepare must return a value for the job, not void or a pointer")
 
 # Tracing must leave no symbols in binaries that never attach listeners. The traced test binary
 # is the positive control that proves the pattern matches when tracing is used.

@@ -33,8 +33,9 @@ Status tick_until_done(R& runner) {
 }  // namespace
 
 TEST_CASE("offload runs a function off the tick and yields its result") {
-  auto tree = beet::sequence(beet::offload([](int value) { return value * 2; }),
-                             [](int value) { return value + 1; });
+  auto tree = beet::sequence(
+      beet::offload(beet::passthrough, [](int value) { return value * 2; }),
+      [](int value) { return value + 1; });
   static_assert(std::is_same_v<beet::input_t<decltype(tree)>, int>);
   static_assert(std::is_same_v<beet::error_t<decltype(tree)>, beet::Exception>);
 
@@ -43,17 +44,57 @@ TEST_CASE("offload runs a function off the tick and yields its result") {
   CHECK(runner.result().value() == 41);
 }
 
+TEST_CASE(
+    "offload runs prepare on the tick and hands only its result to the job") {
+  const std::thread::id tick_thread = std::this_thread::get_id();
+  std::promise<void> release;
+  auto gate = release.get_future().share();
+  int shared = 1;
+  auto tree = beet::offload(
+      [&shared, tick_thread](int offset) {
+        CHECK(std::this_thread::get_id() == tick_thread);
+        return shared + offset;
+      },
+      [gate](int snapshot) {
+        gate.wait();
+        return snapshot;
+      });
+  static_assert(std::is_same_v<beet::input_t<decltype(tree)>, int>);
+
+  beet::Runner runner{tree, 10};
+  CHECK(runner.tick() == Status::Running);
+  // The tick may change shared state while the job runs; the job already has
+  // its copy.
+  shared = 2;
+  release.set_value();
+  CHECK(tick_until_done(runner) == Status::Success);
+  CHECK(runner.result().value() == 11);
+}
+
+TEST_CASE("offload takes a prepare with no input") {
+  int shared = 3;
+  auto tree = beet::offload([&shared] { return shared; },
+                            [](int snapshot) { return snapshot * 2; });
+  static_assert(std::is_same_v<beet::input_t<decltype(tree)>, beet::unit>);
+
+  beet::Runner runner{tree, beet::unit{}};
+  CHECK(tick_until_done(runner) == Status::Success);
+  CHECK(runner.result().value() == 6);
+}
+
 TEST_CASE("offload propagates typed errors and exceptions") {
-  auto failing = beet::offload([](int code) -> Result<int, Bad> {
-    return beet::make_unexpected(Bad{code});
-  });
+  auto failing =
+      beet::offload(beet::passthrough, [](int code) -> Result<int, Bad> {
+        return beet::make_unexpected(Bad{code});
+      });
   static_assert(std::is_same_v<beet::error_t<decltype(failing)>,
                                std::variant<Bad, beet::Exception>>);
   beet::Runner fails{failing, 7};
   CHECK(tick_until_done(fails) == Status::Failure);
   CHECK(std::get<Bad>(fails.result().error()).code == 7);
 
-  beet::Runner throws{beet::offload([] { throw std::runtime_error("boom"); }),
+  beet::Runner throws{beet::offload(beet::passthrough,
+                                    [] { throw std::runtime_error("boom"); }),
                       beet::unit{}};
   CHECK(tick_until_done(throws) == Status::Failure);
   CHECK(throws.result().error().what() == "boom");
@@ -62,10 +103,11 @@ TEST_CASE("offload propagates typed errors and exceptions") {
 TEST_CASE("offload keeps ticking while the job is still working") {
   std::promise<void> release;
   auto gate = release.get_future().share();
-  beet::Runner runner{beet::offload([gate](int value) {
-                        gate.wait();
-                        return value;
-                      }),
+  beet::Runner runner{beet::offload(beet::passthrough,
+                                    [gate](int value) {
+                                      gate.wait();
+                                      return value;
+                                    }),
                       5};
 
   for (int i = 0; i < 10; ++i) {
@@ -78,15 +120,17 @@ TEST_CASE("offload keeps ticking while the job is still working") {
 
 TEST_CASE("halting an offloaded job stops it and waits for it to return") {
   auto stopped = std::make_shared<std::atomic<bool>>(false);
-  // NOLINTNEXTLINE(performance-unnecessary-value-param)
-  beet::Runner runner{beet::offload([stopped](int, std::stop_token stop) {
-                        while (!stop.stop_requested()) {
-                          std::this_thread::yield();
-                        }
-                        stopped->store(true);
-                        return 0;
-                      }),
-                      1};
+  beet::Runner runner{
+      beet::offload(beet::passthrough,
+                    // NOLINTNEXTLINE(performance-unnecessary-value-param)
+                    [stopped](int, std::stop_token stop) {
+                      while (!stop.stop_requested()) {
+                        std::this_thread::yield();
+                      }
+                      stopped->store(true);
+                      return 0;
+                    }),
+      1};
 
   CHECK(runner.tick() == Status::Running);
   runner.halt();
@@ -96,14 +140,16 @@ TEST_CASE("halting an offloaded job stops it and waits for it to return") {
 TEST_CASE("destroying the runner stops and joins an offloaded job") {
   auto stopped = std::make_shared<std::atomic<bool>>(false);
   {
-    // NOLINTNEXTLINE(performance-unnecessary-value-param)
-    beet::Runner runner{beet::offload([stopped](std::stop_token stop) {
-                          while (!stop.stop_requested()) {
-                            std::this_thread::yield();
-                          }
-                          stopped->store(true);
-                        }),
-                        beet::unit{}};
+    beet::Runner runner{
+        beet::offload(beet::passthrough,
+                      // NOLINTNEXTLINE(performance-unnecessary-value-param)
+                      [stopped](std::stop_token stop) {
+                        while (!stop.stop_requested()) {
+                          std::this_thread::yield();
+                        }
+                        stopped->store(true);
+                      }),
+        beet::unit{}};
     CHECK(runner.tick() == Status::Running);
   }
   CHECK(stopped->load());
