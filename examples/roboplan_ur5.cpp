@@ -7,7 +7,7 @@
 // branches get their resources from the "open cell" leaf; nothing is shared
 // outside the tree.
 //
-//   pixi run -e roboplan roboplan-example                        # spawns the
+//   pixi run roboplan-example                                    # spawns the
 //   viewer
 //   ./roboplan_ur5 --save ur5.rrd --seed 3                       # writes a
 //   recording instead

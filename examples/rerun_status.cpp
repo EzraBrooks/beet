@@ -1,7 +1,7 @@
 // Logs the robot mission's node statuses to Rerun as a graph, one frame per
 // tick.
 //
-//   pixi run -e rerun rerun-example                 # spawns the viewer
+//   pixi run rerun-example                          # spawns the viewer
 //   ./rerun_status --save mission.rrd               # writes a recording
 //   instead
 

@@ -14,7 +14,7 @@
     },
     {
       "name": "dev",
-      "displayName": "Debug build with tests and examples",
+      "displayName": "Debug build of every target, for development and clang-tidy",
       "inherits": "base",
       "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
@@ -24,46 +24,13 @@
       }
     },
     {
-      "name": "rerun",
-      "displayName": "Release build of the Rerun status example",
+      "name": "examples",
+      "displayName": "Release build of the examples and benchmarks",
       "inherits": "base",
-      "binaryDir": "${sourceDir}/build-rerun",
+      "binaryDir": "${sourceDir}/build-examples",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "BEET_BUILD_EXAMPLES": "ON",
-        "BEET_BUILD_RERUN_EXAMPLE": "ON"
-      }
-    },
-    {
-      "name": "roboplan",
-      "displayName": "Release build of the roboplan UR5 example",
-      "inherits": "base",
-      "binaryDir": "${sourceDir}/build-roboplan",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
-        "BEET_BUILD_EXAMPLES": "ON",
-        "BEET_BUILD_ROBOPLAN_EXAMPLE": "ON"
-      }
-    },
-    {
-      "name": "bench",
-      "displayName": "Release build of the benchmarks",
-      "inherits": "base",
-      "binaryDir": "${sourceDir}/build-bench",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
-        "BEET_BUILD_BENCHMARKS": "ON"
-      }
-    },
-    {
-      "name": "lint",
-      "displayName": "Debug build of every target, for clang-tidy",
-      "inherits": "dev",
-      "binaryDir": "${sourceDir}/build-lint",
-      "cacheVariables": {
-        "BEET_BUILD_RERUN_EXAMPLE": "ON",
-        "BEET_BUILD_ROBOPLAN_EXAMPLE": "ON",
-        "BEET_BUILD_BENCHMARKS": "ON"
+        "BEET_BUILD_EXAMPLES": "ON"
       }
     },
     {
@@ -82,9 +49,7 @@
   ],
   "buildPresets": [
     { "name": "dev", "configurePreset": "dev" },
-    { "name": "rerun", "configurePreset": "rerun" },
-    { "name": "roboplan", "configurePreset": "roboplan" },
-    { "name": "bench", "configurePreset": "bench" },
+    { "name": "examples", "configurePreset": "examples" },
     { "name": "package", "configurePreset": "package" }
   ],
   "testPresets": [

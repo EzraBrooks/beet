@@ -1,0 +1,21 @@
+# The workspace's examples. Not published; the workspace installs its dependencies through [dev].
+[package]
+name = "beet-examples"
+version = { workspace = true }
+description = "Runnable beet examples"
+license = { workspace = true }
+
+[package.build.backend]
+name = "pixi-build-cmake"
+version = "0.*"
+
+[package.host-dependencies]
+beet = { path = "../beet" }
+librerun-sdk = ">=0.38"
+libroboplan-rrt = ">=0.7"
+libroboplan-toppra = ">=0.7"
+libroboplan-example-models = ">=0.7"
+
+[package.run-dependencies]
+# Provides the viewer that the examples spawn.
+rerun-sdk = ">=0.38"

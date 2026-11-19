@@ -20,34 +20,10 @@ preview = ["pixi-build"]
 [workspace.dependencies]
 cpp-expected = ">=1.1"
 
-# Builds the conda package: `pixi publish --target-dir dist`.
-[package]
-name = { workspace = true }
-version = { workspace = true }
-description = { workspace = true }
-license = { workspace = true }
-license-file = "LICENSE"
-readme = { workspace = true }
-homepage = { workspace = true }
-repository = { workspace = true }
-
-[package.build.backend]
-name = "pixi-build-cmake"
-version = "0.*"
-
-[package.build.config]
-# Mirrors the `package` CMake preset, so the package doesn't bundle a fetched tl::expected.
-extra-args = ["-DCMAKE_REQUIRE_FIND_PACKAGE_tl-expected=ON", "-DBUILD_TESTING=OFF", "-DBEET_BUILD_EXAMPLES=OFF"]
-
-[package.host-dependencies]
-cpp-expected = { workspace = true }
-
-[package.run-dependencies]
-cpp-expected = { workspace = true }
-
-# Installs the package's build, host and run dependencies without building it.
+# Installs the packages' build, host and run dependencies without building them.
 [dev]
-beet = { path = "." }
+beet = { path = "beet" }
+beet-examples = { path = "examples" }
 
 [dependencies]
 doctest = ">=2.4"
@@ -57,40 +33,25 @@ configure = "cmake --preset dev"
 build = { cmd = "cmake --build --preset dev", depends-on = ["configure"] }
 test = { cmd = "ctest --preset dev", depends-on = ["build"] }
 example = { cmd = "./build/examples/robot_patrol", depends-on = ["build"] }
-bench-configure = "cmake --preset bench"
-bench-build = { cmd = "cmake --build --preset bench", depends-on = ["bench-configure"] }
-bench = { cmd = "./build-bench/benchmarks/tick_rate 5e6", depends-on = ["bench-build"] }
-clean = "rm -rf build build-rerun build-bench build-roboplan build-package build-lint"
+bench-build = { cmd = "cmake --build --preset examples --target tick_rate", depends-on = ["examples-configure"] }
+bench = { cmd = "./build-examples/examples/tick_rate 5e6", depends-on = ["bench-build"] }
+clean = "cmake --build --preset dev --target clean"
 
 # Install beet to a local prefix, then build and run tests/package against it. This is the only
 # thing that proves find_package(beet) still works for downstream projects.
 package-configure = "cmake --preset package"
 package-install = { cmd = "cmake --install build-package", depends-on = ["package-configure"] }
-package-consumer = { cmd = "cmake -S tests/package -B build-package/consumer -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$PWD/build-package/prefix && cmake --build build-package/consumer", depends-on = [
+package-consumer = { cmd = "cmake -S beet/tests/package -B build-package/consumer -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$PWD/build-package/prefix && cmake --build build-package/consumer", depends-on = [
   "package-install",
 ] }
 package-test = { cmd = "./build-package/consumer/beet_package_test", depends-on = ["package-consumer"] }
 
-[feature.rerun.dependencies]
-librerun-sdk = ">=0.38"
-rerun-sdk = ">=0.38"
-
-[feature.rerun.tasks]
-rerun-configure = "cmake --preset rerun"
-rerun-build = { cmd = "cmake --build --preset rerun", depends-on = ["rerun-configure"] }
-rerun-example = { cmd = "./build-rerun/examples/rerun_status", depends-on = ["rerun-build"] }
-rerun-record = { cmd = "./build-rerun/examples/rerun_status --save build-rerun/mission.rrd", depends-on = ["rerun-build"] }
-
-[feature.roboplan.dependencies]
-libroboplan-rrt = ">=0.7"
-libroboplan-toppra = ">=0.7"
-libroboplan-example-models = ">=0.7"
-
-[feature.roboplan.tasks]
-roboplan-configure = "cmake --preset roboplan"
-roboplan-build = { cmd = "cmake --build --preset roboplan", depends-on = ["roboplan-configure"] }
-roboplan-example = { cmd = "./build-roboplan/examples/roboplan_ur5", depends-on = ["roboplan-build"] }
-roboplan-record = { cmd = "./build-roboplan/examples/roboplan_ur5 --save build-roboplan/ur5.rrd", depends-on = ["roboplan-build"] }
+examples-configure = "cmake --preset examples"
+examples-build = { cmd = "cmake --build --preset examples", depends-on = ["examples-configure"] }
+rerun-example = { cmd = "./build-examples/examples/rerun_status", depends-on = ["examples-build"] }
+rerun-record = { cmd = "./build-examples/examples/rerun_status --save build-examples/mission.rrd", depends-on = ["examples-build"] }
+roboplan-example = { cmd = "./build-examples/examples/roboplan_ur5", depends-on = ["examples-build"] }
+roboplan-record = { cmd = "./build-examples/examples/roboplan_ur5 --save build-examples/ur5.rrd", depends-on = ["examples-build"] }
 
 [feature.lint.dependencies]
 # clang-tidy needs the builtin headers shipped with the matching clang release.
@@ -99,14 +60,12 @@ clang = "21.*"
 python = "*"
 
 [feature.lint.tasks]
-format = "clang-format -i include/beet/*.hpp tests/*.cpp tests/compile_fail/*.cpp tests/package/*.cpp examples/*.cpp examples/*.hpp benchmarks/*.cpp"
-format-check = "clang-format --dry-run --Werror include/beet/*.hpp tests/*.cpp tests/compile_fail/*.cpp tests/package/*.cpp examples/*.cpp examples/*.hpp benchmarks/*.cpp"
+format = "clang-format -i beet/include/beet/*.hpp beet/tests/*.cpp beet/tests/compile_fail/*.cpp beet/tests/package/*.cpp examples/*.cpp examples/*.hpp"
+format-check = "clang-format --dry-run --Werror beet/include/beet/*.hpp beet/tests/*.cpp beet/tests/compile_fail/*.cpp beet/tests/package/*.cpp examples/*.cpp examples/*.hpp"
 # compile_fail sources are excluded because they are meant not to compile. The conda include directory is
 # implicit for GCC, so it is missing from compile_commands.json.
-lint-configure = "cmake --preset lint"
-lint = { cmd = "run-clang-tidy -p build-lint -quiet -extra-arg=-isystem$CONDA_PREFIX/include '^(?!.*/compile_fail/).*\\.cpp$'", depends-on = ["lint-configure"] }
+lint-configure = "cmake --preset dev"
+lint = { cmd = "run-clang-tidy -p build -quiet -extra-arg=-isystem$CONDA_PREFIX/include '^(?!.*/compile_fail/).*\\.cpp$'", depends-on = ["lint-configure"] }
 
 [environments]
-rerun = ["rerun"]
-roboplan = ["rerun", "roboplan"]
-lint = ["lint", "rerun", "roboplan"]
+lint = ["lint"]
