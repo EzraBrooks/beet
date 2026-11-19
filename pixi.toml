@@ -23,6 +23,7 @@ cpp-expected = ">=1.1"
 # Installs the packages' build, host and run dependencies without building them.
 [dev]
 beet = { path = "beet" }
+beet-rerun = { path = "beet-rerun" }
 beet-examples = { path = "examples" }
 
 [dependencies]
@@ -60,8 +61,8 @@ clang = "21.*"
 python = "*"
 
 [feature.lint.tasks]
-format = "clang-format -i beet/include/beet/*.hpp beet/tests/*.cpp beet/tests/compile_fail/*.cpp beet/tests/package/*.cpp examples/*.cpp examples/*.hpp"
-format-check = "clang-format --dry-run --Werror beet/include/beet/*.hpp beet/tests/*.cpp beet/tests/compile_fail/*.cpp beet/tests/package/*.cpp examples/*.cpp examples/*.hpp"
+format = "clang-format -i beet/include/beet/*.hpp beet/tests/*.cpp beet/tests/compile_fail/*.cpp beet/tests/package/*.cpp examples/*.cpp examples/*.hpp beet-rerun/include/beet_rerun/*.hpp"
+format-check = "clang-format --dry-run --Werror beet/include/beet/*.hpp beet/tests/*.cpp beet/tests/compile_fail/*.cpp beet/tests/package/*.cpp examples/*.cpp examples/*.hpp beet-rerun/include/beet_rerun/*.hpp"
 # compile_fail sources are excluded because they are meant not to compile. The conda include directory is
 # implicit for GCC, so it is missing from compile_commands.json.
 lint-configure = "cmake --preset dev"

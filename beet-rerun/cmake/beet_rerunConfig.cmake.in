@@ -1,0 +1,10 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+find_dependency(beet 0.2)
+find_dependency(rerun_sdk)
+
+include("${CMAKE_CURRENT_LIST_DIR}/beet_rerunTargets.cmake")
+
+check_required_components(beet_rerun)

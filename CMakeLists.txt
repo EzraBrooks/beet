@@ -8,6 +8,7 @@ include(CTest)
 option(BEET_BUILD_EXAMPLES "Build the examples package" ON)
 
 add_subdirectory(beet)
+add_subdirectory(beet-rerun)
 if(BEET_BUILD_EXAMPLES)
   add_subdirectory(examples)
 endif()

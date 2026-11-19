@@ -45,7 +45,7 @@
 
 #include "beet/beet.hpp"
 #include "beet/observe.hpp"
-#include "rerun_tree.hpp"
+#include "beet_rerun/graph_logger.hpp"
 
 namespace {
 
@@ -429,7 +429,7 @@ auto make_tree(const std::shared_ptr<const rerun::RecordingStream>& rec) {
 // the tree's status once the tick ends.
 template <class Tree>
 auto tick_logger(const rerun::RecordingStream& rec,
-                 const rerun_tree::GraphLogger<Tree>& graph,
+                 const beet_rerun::GraphLogger<Tree>& graph,
                  beet::StatusTable<Tree>& table) {
   auto status = table.listeners();
   return beet::Listeners{
@@ -475,7 +475,7 @@ int main(int argc, char** argv) {
   const auto tree = make_tree(rec);
   using Tree = std::remove_cvref_t<decltype(tree)>;
   static_assert(beet::rate_v<Tree> == control_rate);
-  const rerun_tree::GraphLogger<Tree> graph(*rec, "tree");
+  const beet_rerun::GraphLogger<Tree> graph(*rec, "tree");
   beet::StatusTable<Tree> table;
   beet::Runner runner{tree, config, tick_logger(*rec, graph, table)};
   runner.run();

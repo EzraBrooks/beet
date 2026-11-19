@@ -4,6 +4,9 @@ project(beet_examples LANGUAGES CXX)
 if(NOT TARGET beet::beet)
   find_package(beet 0.2 REQUIRED)
 endif()
+if(NOT TARGET beet_rerun::beet_rerun)
+  find_package(beet_rerun 0.2 REQUIRED)
+endif()
 find_package(rerun_sdk REQUIRED)
 find_package(roboplan_rrt REQUIRED)
 find_package(roboplan_toppra REQUIRED)
@@ -25,9 +28,9 @@ add_executable(robot_patrol robot_patrol.cpp)
 target_link_libraries(robot_patrol PRIVATE beet::beet)
 
 add_executable(rerun_status rerun_status.cpp)
-target_link_libraries(rerun_status PRIVATE beet::beet rerun_sdk)
+target_link_libraries(rerun_status PRIVATE beet::beet beet_rerun::beet_rerun rerun_sdk)
 
 add_executable(roboplan_ur5 roboplan_ur5.cpp)
 target_link_libraries(
-  roboplan_ur5 PRIVATE beet::beet rerun_sdk roboplan_rrt::roboplan_rrt roboplan_toppra::roboplan_toppra
-                       roboplan_example_models::roboplan_example_models)
+  roboplan_ur5 PRIVATE beet::beet beet_rerun::beet_rerun rerun_sdk roboplan_rrt::roboplan_rrt
+                       roboplan_toppra::roboplan_toppra roboplan_example_models::roboplan_example_models)
