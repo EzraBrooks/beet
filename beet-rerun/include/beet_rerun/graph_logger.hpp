@@ -15,7 +15,7 @@
 
 #include "beet/observe.hpp"
 
-namespace rerun_tree {
+namespace beet_rerun {
 
 inline rerun::Color color_of(beet::NodeStatus s) {
   switch (s) {
@@ -134,4 +134,4 @@ class GraphLogger {
   std::vector<rerun::components::Position2D> positions_;
 };
 
-}  // namespace rerun_tree
+}  // namespace beet_rerun

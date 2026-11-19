@@ -17,7 +17,7 @@
 
 #include "beet/beet.hpp"
 #include "beet/observe.hpp"
-#include "rerun_tree.hpp"
+#include "beet_rerun/graph_logger.hpp"
 #include "robot_mission.hpp"
 
 // NOLINTNEXTLINE(bugprone-exception-escape)
@@ -32,7 +32,7 @@ int main(int argc, char** argv) {
     rec.spawn().exit_on_failure();
   }
 
-  const rerun_tree::GraphLogger<Tree> graph(rec, "mission");
+  const beet_rerun::GraphLogger<Tree> graph(rec, "mission");
 
   std::int64_t frame = 0;
   for (std::size_t run = 0; run < mission::goals.size(); ++run) {

@@ -12,7 +12,7 @@ pixi run example
 
 ## Tree status in Rerun
 
-[rerun_status.cpp](rerun_status.cpp) runs the same mission and logs it to [Rerun](https://rerun.io) as a graph, one frame per tick. The graph's edges come from `beet::describe`, so its structure is derived entirely from the tree's type. A `StatusTable`, fed by its `listeners()`, colors each node by status. The logging code is in [rerun_tree.hpp](rerun_tree.hpp) and works with any tree.
+[rerun_status.cpp](rerun_status.cpp) runs the same mission and logs it to [Rerun](https://rerun.io) as a graph, one frame per tick. The graph's edges come from `beet::describe`, so its structure is derived entirely from the tree's type. A `StatusTable`, fed by its `listeners()`, colors each node by status. The logging code is the [beet-rerun](../beet-rerun/include/beet_rerun/graph_logger.hpp) package and works with any tree: link `beet_rerun::beet_rerun` after `find_package(beet_rerun)`, or depend on `beet-rerun` from Pixi.
 
 ```sh
 pixi run rerun-example   # spawns the viewer

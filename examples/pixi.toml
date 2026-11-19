@@ -11,6 +11,7 @@ version = "0.*"
 
 [package.host-dependencies]
 beet = { path = "../beet" }
+beet-rerun = { path = "../beet-rerun" }
 librerun-sdk = ">=0.38"
 libroboplan-rrt = ">=0.7"
 libroboplan-toppra = ">=0.7"

@@ -173,6 +173,8 @@ beet = { git = "https://github.com/EzraBrooks/beet.git", subdirectory = "beet" }
 
 `pixi publish --target-dir dist` builds the `.conda` artifact on its own.
 
+[beet-rerun](beet-rerun/include/beet_rerun/graph_logger.hpp) is a separate package that draws any tree's live node statuses in [Rerun](https://rerun.io). Use it via `find_package(beet_rerun)` and link `beet_rerun::beet_rerun`, or from Pixi with `subdirectory = "beet-rerun"`.
+
 ## Building
 
 The developer environment is managed by [Pixi](https://pixi.sh):

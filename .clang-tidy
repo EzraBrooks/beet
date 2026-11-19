@@ -22,4 +22,4 @@ CheckOptions:
   readability-identifier-length.IgnoredVariableNames: '^(in|id|ok|fn|ch|at|no|ex)$'
   readability-identifier-length.IgnoredParameterNames: '^(in|id|ok|fn|ch|at|no|ex)$'
 WarningsAsErrors: '*'
-HeaderFilterRegex: '.*/(include/beet|examples|tests)/.*'
+HeaderFilterRegex: '.*/(include/beet|include/beet_rerun|examples|tests)/.*'

@@ -1,0 +1,22 @@
+# Builds the conda package alongside beet's: `pixi publish --target-dir dist`.
+[package]
+name = "beet-rerun"
+version = { workspace = true }
+description = "Live views of beet behavior trees in Rerun"
+license = { workspace = true }
+license-file = "LICENSE"
+homepage = { workspace = true }
+repository = { workspace = true }
+publish = true
+
+[package.build.backend]
+name = "pixi-build-cmake"
+version = "0.*"
+
+[package.host-dependencies]
+beet = { path = "../beet" }
+librerun-sdk = ">=0.38"
+
+[package.run-dependencies]
+beet = { pin-compatible = { lower-bound = "x.x.x", upper-bound = "x.x" } }
+librerun-sdk = ">=0.38"
