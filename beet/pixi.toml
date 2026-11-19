@@ -1,0 +1,25 @@
+# Builds the conda package: `pixi publish --target-dir dist`.
+[package]
+name = { workspace = true }
+version = { workspace = true }
+description = { workspace = true }
+license = { workspace = true }
+license-file = "LICENSE"
+readme = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+publish = true
+
+[package.build.backend]
+name = "pixi-build-cmake"
+version = "0.*"
+
+[package.build.config]
+# Mirrors the `package` CMake preset, so the package doesn't bundle a fetched tl::expected.
+extra-args = ["-DCMAKE_REQUIRE_FIND_PACKAGE_tl-expected=ON", "-DBUILD_TESTING=OFF"]
+
+[package.host-dependencies]
+cpp-expected = { workspace = true }
+
+[package.run-dependencies]
+cpp-expected = { workspace = true }

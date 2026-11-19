@@ -149,7 +149,7 @@ runner.tick();
 table.status(5);  // NodeStatus::Running
 ```
 
-**Tracing costs nothing unless you use it.** Every node runs through a trace parameter. A `Runner` without listeners passes an empty `untraced` value, and on that path every hook is discarded by `if constexpr`. The traced wrappers are only instantiated when a `Runner` is constructed with listeners, and `beet/observe.hpp` is not included by `beet/beet.hpp`. A CTest check runs `nm` on the untraced example binary and fails if any tracing symbols appear in it.
+**Tracing costs nothing unless you use it.** Every node runs through a trace parameter. A `Runner` without listeners passes an empty `untraced` value, and on that path every hook is discarded by `if constexpr`. The traced wrappers are only instantiated when a `Runner` is constructed with listeners, and `beet/observe.hpp` is not included by `beet/beet.hpp`. A CTest check runs `nm` on an untraced test binary and fails if any tracing symbols appear in it.
 
 Current limits:
 - **User coroutine leaves:** subtrees awaited inside a user coroutine leaf (`co_await subtree(x)`) are reported as part of that leaf.
@@ -168,7 +168,7 @@ beet also builds with [`pixi-build-cmake`](https://pixi.sh/latest/build/backends
 preview = ["pixi-build"]
 
 [dependencies]
-beet = { git = "https://github.com/EzraBrooks/beet.git" }
+beet = { git = "https://github.com/EzraBrooks/beet.git", subdirectory = "beet" }
 ```
 
 `pixi publish --target-dir dist` builds the `.conda` artifact on its own.
